@@ -3,7 +3,7 @@ import { Text, View } from 'react-native';
 import type { Habit, CompletionMap, WeekStart } from '@/lib/types';
 import type { ThemeTokens } from '@/lib/theme';
 import { isCompletedOn, isScheduledOn } from '@/lib/streaks';
-import { localDateKey, parseDateKey, startOfWeekKey, shiftDateKey, weekdayShort } from '@/lib/dates';
+import { parseDateKey, startOfWeekKey, shiftDateKey, weekdayShort } from '@/lib/dates';
 
 type Props = {
   habits: Habit[];

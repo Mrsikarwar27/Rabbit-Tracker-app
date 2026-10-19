@@ -266,3 +266,175 @@ export async function clearStoredData(): Promise<void> {
   scheduleSave(defaultAppData());
   await flushSave();
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Store-facing adapter.
+ *
+ * `useHabitStore` reads/writes a slightly different document shape than the
+ * legacy API above, so these map between the two at the boundary:
+ *   • completions are keyed by LOCAL DATE key, then habit id (the legacy
+ *     sanitizer keys them habit-first, which would silently transpose data);
+ *   • reminders are stored under `reminders`, not `notificationIds`;
+ *   • weekStart is a 'sun' | 'mon' string rather than a 0/1 index.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const ADAPTER_KEY = 'habit-tracker/data/v1';
+
+export interface StoreSettings {
+  theme: 'dark' | 'light' | 'system';
+  weekStart: 'sun' | 'mon';
+  notificationsEnabled: boolean;
+}
+
+/**
+ * Store-facing completion record. `updatedAt` is an ISO string here (the store
+ * writes `new Date().toISOString()`), unlike the legacy numeric bookkeeping
+ * timestamp on the `CompletionEntry` above.
+ */
+export interface StoreCompletionEntry {
+  count: number;
+  updatedAt: string;
+}
+
+export type StoreCompletionMap = Record<string, Record<string, StoreCompletionEntry>>;
+
+export interface StoreData {
+  habits: Habit[];
+  completions: StoreCompletionMap;
+  reminders: Record<string, string[]>;
+  settings: StoreSettings;
+}
+
+const DEFAULT_STORE_SETTINGS: StoreSettings = {
+  theme: 'dark',
+  weekStart: 'sun',
+  notificationsEnabled: true,
+};
+
+/** Accept both the legacy 0/1 index and the current 'sun' | 'mon' string. */
+function toWeekStart(value: unknown): 'sun' | 'mon' {
+  if (value === 'sun' || value === 'mon') return value;
+  if (value === 0) return 'sun';
+  if (value === 1) return 'mon';
+  return 'sun';
+}
+
+function toTheme(value: unknown): 'dark' | 'light' | 'system' {
+  return value === 'light' || value === 'system' ? value : 'dark';
+}
+
+function toReminders(value: unknown): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return out;
+  for (const [habitId, ids] of Object.entries(value as Record<string, unknown>)) {
+    if (Array.isArray(ids)) out[habitId] = ids.filter((id): id is string => typeof id === 'string');
+  }
+  return out;
+}
+
+/**
+ * Date-keyed completion map. Entries are kept even at count 0 — the store uses
+ * them to tell "explicitly unchecked" apart from "never touched".
+ */
+function toCompletions(value: unknown): StoreCompletionMap {
+  const out: StoreCompletionMap = {};
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return out;
+  for (const [dateKey, byHabit] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof byHabit !== 'object' || byHabit === null || Array.isArray(byHabit)) continue;
+    const day: Record<string, StoreCompletionEntry> = {};
+    for (const [habitId, entry] of Object.entries(byHabit as Record<string, unknown>)) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const { count } = entry as { count?: unknown };
+      const numeric = typeof count === 'number' && Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+      day[habitId] = {
+        count: numeric,
+        updatedAt:
+          typeof (entry as { updatedAt?: unknown }).updatedAt === 'string'
+            ? (entry as { updatedAt: string }).updatedAt
+            : new Date().toISOString(),
+      };
+    }
+    out[dateKey] = day;
+  }
+  return out;
+}
+
+function toHabits(value: unknown): Habit[] {
+  if (!Array.isArray(value)) return [];
+  const out: Habit[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const habit = raw as Partial<Habit> & { id?: unknown };
+    if (typeof habit.id !== 'string' || habit.id.length === 0 || seen.has(habit.id)) continue;
+    seen.add(habit.id);
+    out.push(habit as Habit);
+  }
+  return out;
+}
+
+/**
+ * Load persisted data for the habit store.
+ *
+ * Never throws: unreadable or malformed blobs resolve to defaults so a bad
+ * write can't brick the app on launch.
+ */
+export async function loadData(): Promise<StoreData> {
+  let raw: string | null = null;
+  try {
+    raw = await AsyncStorage.getItem(ADAPTER_KEY);
+  } catch {
+    return { habits: [], completions: {}, reminders: {}, settings: { ...DEFAULT_STORE_SETTINGS } };
+  }
+  if (raw === null) {
+    return { habits: [], completions: {}, reminders: {}, settings: { ...DEFAULT_STORE_SETTINGS } };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) throw new Error('not an object');
+    const doc = parsed as Record<string, unknown>;
+    const rawSettings = (typeof doc.settings === 'object' && doc.settings !== null ? doc.settings : {}) as Record<string, unknown>;
+    return {
+      habits: toHabits(doc.habits),
+      completions: toCompletions(doc.completions),
+      reminders: toReminders(doc.reminders),
+      settings: {
+        theme: toTheme(rawSettings.theme),
+        weekStart: toWeekStart(rawSettings.weekStart),
+        notificationsEnabled: rawSettings.notificationsEnabled !== false,
+      },
+    };
+  } catch {
+    return { habits: [], completions: {}, reminders: {}, settings: { ...DEFAULT_STORE_SETTINGS } };
+  }
+}
+
+/**
+ * Persist a store snapshot. Serialized through the shared write chain so rapid
+ * toggles can never interleave or land out of order.
+ */
+export async function saveData(data: StoreData): Promise<void> {
+  const payload = JSON.stringify({
+    version: 1,
+    habits: data.habits,
+    completions: data.completions,
+    reminders: data.reminders,
+    settings: data.settings,
+    updatedAt: new Date().toISOString(),
+  });
+  chain = chain
+    .then(() => AsyncStorage.setItem(ADAPTER_KEY, payload))
+    .catch((err) => {
+      console.warn('[storage] persist failed', err);
+    });
+  await chain;
+}
+
+/** Remove the stored document (user-initiated). */
+export async function clearData(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(ADAPTER_KEY);
+  } catch (err) {
+    console.warn('[storage] clear failed', err);
+  }
+}

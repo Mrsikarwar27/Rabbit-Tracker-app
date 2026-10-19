@@ -22,7 +22,7 @@ import {
   flushSave,
   type LoadResult,
 } from '../lib/storage';
-import { todayKey, toLocalDateKey } from '../lib/date';
+import { todayKey } from '../lib/date';
 import {
   effectiveTarget,
   nextCountAfterIncrement,
@@ -93,7 +93,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     settings,
     notificationIds,
   });
-  stateRef.current = { habits, completions, settings, notificationIds };
+
+  useEffect(() => {
+    stateRef.current = { habits, completions, settings, notificationIds };
+  }, [habits, completions, settings, notificationIds]);
 
   const markMutated = useCallback(() => {
     everMutated.current = true;

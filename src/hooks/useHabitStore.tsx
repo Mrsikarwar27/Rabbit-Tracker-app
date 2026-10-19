@@ -144,7 +144,9 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
 
   // ---- single-writer persistence (events, not data flow) --------------------
   const dataRef = useRef({ habits, completions, reminders, settings });
-  dataRef.current = { habits, completions, reminders, settings };
+  useEffect(() => {
+    dataRef.current = { habits, completions, reminders, settings };
+  }, [habits, completions, reminders, settings]);
   const saveChain = useRef<Promise<void>>(Promise.resolve());
   const lastSavedJson = useRef('');
 
@@ -229,7 +231,9 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const habitsRef = useRef(habits);
-  habitsRef.current = habits;
+  useEffect(() => {
+    habitsRef.current = habits;
+  }, [habits]);
 
   const toggleCompletion = useCallback((habitId: string, dateKey: string): void => {
     const habit = habitsRef.current.find((h) => h.id === habitId);

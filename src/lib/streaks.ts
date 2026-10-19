@@ -23,13 +23,16 @@
  *    sets count to 0 on that record (history is preserved, never duplicated).
  */
 
-import type { CompletionMap, Habit } from './types';
+import type { CompletionMap, Habit, Weekday } from './types';
 import { localDateKey, parseDateKey, shiftDateKey } from './dates';
 
 /** True when the habit is scheduled on the given date key. */
 export function isScheduledOn(habit: Habit, dateKey: string): boolean {
   if (habit.frequency.type === 'daily') return true;
-  return habit.frequency.weekdays.includes(parseDateKey(dateKey).getDay());
+  if (habit.frequency.type === 'weekdays') {
+    return habit.frequency.days.includes(parseDateKey(dateKey).getDay() as Weekday);
+  }
+  return false;
 }
 
 export function isCompletedOn(
@@ -51,7 +54,6 @@ export function completionCountOn(
 
 /** Date key the habit could first have been scheduled (local, from createdAt). */
 function createdAtKey(habit: Habit): string {
-  if (habit.createdAtKey) return habit.createdAtKey;
   const created = new Date(habit.createdAt);
   if (Number.isNaN(created.getTime())) return localDateKey();
   return localDateKey(created);

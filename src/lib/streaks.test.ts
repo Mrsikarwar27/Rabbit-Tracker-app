@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CompletionMap, Habit } from './types';
@@ -7,19 +8,18 @@ function habit(overrides: Partial<Habit> = {}): Habit {
   return {
     id: 'h1',
     title: 'Test',
-    category: 'Personal',
+    category: 'personal',
     emoji: '🌱',
     color: '#A6F36A',
     frequency: { type: 'daily' },
     target: 1,
     createdAt: '2025-01-01T00:00:00.000Z',
-    createdAtKey: '2025-01-01',
     archived: false,
     ...overrides,
   };
 }
 
-const key = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const key = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 function done(map: CompletionMap, h: Habit, dateKey: string): CompletionMap {
   map[dateKey] = map[dateKey] ?? {};
@@ -30,7 +30,7 @@ function done(map: CompletionMap, h: Habit, dateKey: string): CompletionMap {
 test('daily habit scheduled everywhere', () => {
   const h = habit();
   assert.equal(isScheduledOn(h, '2025-03-05'), true);
-  const w = habit({ frequency: { type: 'weekdays', weekdays: [1, 3] } });
+  const w = habit({ frequency: { type: 'weekdays', days: [1, 3] } });
   assert.equal(isScheduledOn(w, '2025-03-05'), true); // Wednesday = 3
   assert.equal(isScheduledOn(w, '2025-03-06'), false); // Thursday = 4
 });
@@ -45,7 +45,7 @@ test('current streak: consecutive completed days', () => {
 });
 
 test('current streak: uncompleted today is pending, not a break', () => {
-  const h = habit({ createdAtKey: '2025-03-01' });
+  const h = habit({ createdAt: '2025-03-01T00:00:00.000Z' });
   const map = done({}, h, '2025-03-04');
   done(map, h, '2025-03-05');
   // today = 03-06 not completed => streak continues counting yesterday chain = 2
@@ -53,7 +53,7 @@ test('current streak: uncompleted today is pending, not a break', () => {
 });
 
 test('current streak: missed scheduled past day breaks it', () => {
-  const h = habit({ createdAtKey: '2025-03-01' });
+  const h = habit({ createdAt: '2025-03-01T00:00:00.000Z' });
   const map = done({}, h, '2025-03-04');
   done(map, h, '2025-03-05');
   // today = 03-07, and 03-06 (past, scheduled, missed) breaks
@@ -62,7 +62,7 @@ test('current streak: missed scheduled past day breaks it', () => {
 
 test('current streak: non-scheduled days never break (weekdays habit)', () => {
   // Weekdays: Mon(1), Wed(3) only. 2025-03-04 is Tuesday.
-  const h = habit({ frequency: { type: 'weekdays', weekdays: [1, 3] }, createdAtKey: '2025-03-01' });
+  const h = habit({ frequency: { type: 'weekdays', days: [1, 3] }, createdAt: '2025-03-01T00:00:00.000Z' });
   const map = done({}, h, '2025-03-03'); // Monday done
   // Tuesday 03-04 not scheduled -> doesn't break. Wednesday 03-05 done.
   done(map, h, '2025-03-05');
@@ -73,13 +73,13 @@ test('current streak: non-scheduled days never break (weekdays habit)', () => {
 });
 
 test('current streak: zero before habit creation', () => {
-  const h = habit({ createdAtKey: '2025-03-01' });
+  const h = habit({ createdAt: '2025-03-01T00:00:00.000Z' });
   const map = done({}, h, '2025-02-28'); // predates habit
   assert.equal(currentStreak(h, map, '2025-03-01'), 0);
 });
 
 test('longest streak counts historical run; today pending does not break max', () => {
-  const h = habit({ createdAtKey: '2025-01-01' });
+  const h = habit({ createdAt: '2025-01-01T00:00:00.000Z' });
   const map = done({}, h, '2025-01-10');
   done(map, h, '2025-01-11');
   done(map, h, '2025-01-12');
@@ -88,7 +88,7 @@ test('longest streak counts historical run; today pending does not break max', (
 });
 
 test('longest streak: historical missed day splits runs', () => {
-  const h = habit({ createdAtKey: '2025-01-01' });
+  const h = habit({ createdAt: '2025-01-01T00:00:00.000Z' });
   const map = done({}, h, '2025-01-01');
   done(map, h, '2025-01-02');
   done(map, h, '2025-01-04');
@@ -101,7 +101,7 @@ test('longest streak: historical missed day splits runs', () => {
 });
 
 test('target > 1: completion only when count reaches target', () => {
-  const h = habit({ target: 3, createdAtKey: '2025-01-01' });
+  const h = habit({ target: 3, createdAt: '2025-01-01T00:00:00.000Z' });
   const map: CompletionMap = {
     '2025-01-05': { [h.id]: { count: 2, updatedAt: 'x' } },
   };

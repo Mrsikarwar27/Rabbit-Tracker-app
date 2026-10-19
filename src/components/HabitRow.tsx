@@ -1,8 +1,7 @@
 import React from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
-import type { Habit } from '@/lib/types';
+import type { Habit, CompletionMap } from '@/lib/types';
 import type { ThemeTokens } from '@/lib/theme';
-import type { CompletionMap } from '@/lib/types';
 import { isCompletedOn, currentStreak } from '@/lib/streaks';
 
 type Props = {

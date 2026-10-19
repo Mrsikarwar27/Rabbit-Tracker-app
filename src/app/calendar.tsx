@@ -38,19 +38,19 @@ export default function Calendar() {
   const monthLastKey = `${view.year}-${String(view.month + 1).padStart(2, '0')}-31`;
   const selectionInView = selectedKey >= monthFirstKey && selectedKey <= monthLastKey;
   useEffect(() => {
-    if (!selectionInView) setSelectedKey(monthFirstKey);
+    if (!selectionInView) setSelectedKey(monthFirstKey); // eslint-disable-line react-hooks/set-state-in-effect
   }, [selectionInView, monthFirstKey]);
 
   const grid = useMemo(() => {
     const report = monthReport(activeHabits, completions, view.year, view.month, todayKey);
     const firstDow =
-      (parseDateKey(report[0].dateKey).getDay() - (settings.weekStart === 'mon' ? 1 : 0) + 7) % 7;
-    const cells: Array<null | {
+      (parseDateKey(report[0].dateKey).getDay() - (settings.weekStart === 1 ? 1 : 0) + 7) % 7;
+    const cells: (null | {
       key: string;
       rate: number;
       scheduled: number;
       future: boolean;
-    }> = [];
+    })[] = [];
     for (let i = 0; i < firstDow; i += 1) cells.push(null);
     for (const row of report) {
       cells.push({
@@ -61,7 +61,7 @@ export default function Calendar() {
       });
     }
     while (cells.length % 7 !== 0) cells.push(null);
-    const lines: Array<Array<null | { key: string; rate: number; scheduled: number; future: boolean }>> = [];
+    const lines: (null | { key: string; rate: number; scheduled: number; future: boolean })[][] = [];
     for (let i = 0; i < cells.length; i += 7) lines.push(cells.slice(i, i + 7));
     return lines;
   }, [activeHabits, completions, view, todayKey, settings.weekStart]);

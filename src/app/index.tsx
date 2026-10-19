@@ -32,7 +32,6 @@ export default function Index() {
     tokens,
     toggleCompletion,
     stepCompletion,
-    getHabit,
   } = useHabitStore();
   const todayKey = useToday();
   const insets = useSafeAreaInsets();
@@ -79,7 +78,7 @@ export default function Index() {
         {/* Progress card */}
         <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
           <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>
-            TODAY'S PROGRESS
+            TODAY&apos;S PROGRESS
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginTop: 12 }}>
             <Text style={{ color: tokens.accent, fontSize: 30, fontWeight: '800' }}>
@@ -150,7 +149,7 @@ export default function Index() {
           <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border, marginTop: 28 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>
-                TODAY'S HABITS
+                TODAY&apos;S HABITS
               </Text>
               <Link href="/habits" asChild>
                 <TouchableOpacity hitSlop={8}>

@@ -29,7 +29,7 @@ export default function Settings() {
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
 
-  const sector = (label: string, options: Array<{ value: string; label: string }>, value: string, onPick: (v: string) => void) => (
+  const sector = (label: string, options: { value: string; label: string }[], value: string, onPick: (v: string) => void) => (
     <View style={{ marginTop: 16 }}>
       <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>{label}</Text>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
@@ -196,7 +196,7 @@ export default function Settings() {
             </View>
           </TouchableOpacity>
           <Text style={{ color: tokens.muted, fontSize: 11, marginTop: 6 }}>
-            Per-habit reminder times live in each habit's form. On Android in Expo Go, exact delivery can be
+            Per-habit reminder times live in each habit&apos;s form. On Android in Expo Go, exact delivery can be
             delayed by battery optimization (Doze).
           </Text>
         </View>

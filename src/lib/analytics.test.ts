@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { CompletionMap, Habit } from './types';
@@ -7,13 +8,12 @@ function habit(id: string, overrides: Partial<Habit> = {}): Habit {
   return {
     id,
     title: id,
-    category: 'Personal',
+    category: 'personal',
     emoji: '🌱',
     color: '#A6F36A',
     frequency: { type: 'daily' },
     target: 1,
     createdAt: '2025-01-01T00:00:00.000Z',
-    createdAtKey: '2025-01-01',
     archived: false,
     ...overrides,
   };

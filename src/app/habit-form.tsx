@@ -18,7 +18,7 @@ import { CATEGORIES, type Category, type HabitInput } from '@/lib/types';
 import { CATEGORY_EMOJI, PALETTE, type ThemeTokens } from '@/lib/theme';
 import { parseHhMm, weekdayLong, weekdayOrder } from '@/lib/dates';
 
-const fieldLabel = (tokens: ThemeTokens): StyleSheet.NamedStyles<{ label: {} }> =>
+const fieldLabel = (tokens: ThemeTokens): StyleSheet.NamedStyles<{ label: Record<string, unknown> }> =>
   StyleSheet.create({
     label: { color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 },
   });
