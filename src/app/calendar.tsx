@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useHabitStore } from '@/hooks/useHabitStore';
+import { useHabitStore, useTheme } from '@/hooks/useHabitStore';
 import { useToday } from '@/hooks/useToday';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { Card } from '@/components/ui';
 import { formatDateLabel, monthLabel, monthName, parseDateKey, weekdayOrder } from '@/lib/dates';
 import { monthReport } from '@/lib/analytics';
 import { isCompletedOn, isScheduledOn } from '@/lib/streaks';
@@ -18,7 +19,8 @@ import { isCompletedOn, isScheduledOn } from '@/lib/streaks';
 type DayState = 'done' | 'partial' | 'missed' | 'scheduled' | 'off';
 
 export default function Calendar() {
-  const { tokens, activeHabits, completions, settings } = useHabitStore();
+  const { activeHabits, completions, settings } = useHabitStore();
+  const { tokens } = useTheme();
   const todayKey = useToday();
   const insets = useSafeAreaInsets();
   const todayDate = parseDateKey(todayKey);
@@ -32,25 +34,23 @@ export default function Calendar() {
   const [selectedKey, setSelectedKey] = useState(todayKey);
   const viewIsCurrentMonth = monthOffset === 0;
 
-  // Default the inspection to the 1st of the month being viewed when it
-  // switches to a month the current selection isn't in.
   const monthFirstKey = `${view.year}-${String(view.month + 1).padStart(2, '0')}-01`;
   const monthLastKey = `${view.year}-${String(view.month + 1).padStart(2, '0')}-31`;
   const selectionInView = selectedKey >= monthFirstKey && selectedKey <= monthLastKey;
   useEffect(() => {
-    if (!selectionInView) setSelectedKey(monthFirstKey);
+    if (!selectionInView) setSelectedKey(monthFirstKey); // eslint-disable-line react-hooks/set-state-in-effect
   }, [selectionInView, monthFirstKey]);
 
   const grid = useMemo(() => {
     const report = monthReport(activeHabits, completions, view.year, view.month, todayKey);
     const firstDow =
       (parseDateKey(report[0].dateKey).getDay() - (settings.weekStart === 'mon' ? 1 : 0) + 7) % 7;
-    const cells: Array<null | {
+    const cells: (null | {
       key: string;
       rate: number;
       scheduled: number;
       future: boolean;
-    }> = [];
+    })[] = [];
     for (let i = 0; i < firstDow; i += 1) cells.push(null);
     for (const row of report) {
       cells.push({
@@ -61,7 +61,7 @@ export default function Calendar() {
       });
     }
     while (cells.length % 7 !== 0) cells.push(null);
-    const lines: Array<Array<null | { key: string; rate: number; scheduled: number; future: boolean }>> = [];
+    const lines: (null | { key: string; rate: number; scheduled: number; future: boolean })[][] = [];
     for (let i = 0; i < cells.length; i += 7) lines.push(cells.slice(i, i + 7));
     return lines;
   }, [activeHabits, completions, view, todayKey, settings.weekStart]);
@@ -85,117 +85,163 @@ export default function Calendar() {
     [activeHabits, completions, selectedKey, todayKey],
   );
 
+  const stateColor = (state: DayState | null): string => {
+    switch (state) {
+      case 'done':
+        return tokens.success;
+      case 'missed':
+        return tokens.error;
+      case 'partial':
+        return tokens.primary;
+      case 'scheduled':
+        return tokens.secondary;
+      default:
+        return tokens.textSecondary;
+    }
+  };
+
   return (
-    <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <StatusBar barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={tokens.bg} />
-      <ScreenHeader title={monthLabel(view.year, view.month)} subtitle="Tap a day to inspect it" tokens={tokens} showBack />
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 30 }} keyboardShouldPersistTaps="handled">
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-          <TouchableOpacity onPress={() => setMonthOffset((m) => m - 1)} style={[styles.navBtn, { borderColor: tokens.border }]} hitSlop={4}>
-            <Text style={{ color: tokens.text, fontSize: 18 }}>←</Text>
-          </TouchableOpacity>
+    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
+      <StatusBar
+        barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={tokens.background}
+      />
+      <ScreenHeader title={monthLabel(view.year, view.month)} subtitle="Tap a day to inspect it" showBack />
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 30 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.navRow}>
+          <Pressable
+            onPress={() => setMonthOffset((m) => m - 1)}
+            style={[styles.navBtn, { borderColor: tokens.border, backgroundColor: tokens.surface }]}
+            accessibilityRole="button"
+            accessibilityLabel="Previous month"
+          >
+            <Text style={{ color: tokens.textPrimary, fontSize: 18 }}>←</Text>
+          </Pressable>
           {!viewIsCurrentMonth ? (
-            <TouchableOpacity onPress={() => setMonthOffset(0)} hitSlop={4}>
-              <Text style={{ color: tokens.accent, fontSize: 13, fontWeight: '700' }}>Back to today</Text>
-            </TouchableOpacity>
+            <Pressable onPress={() => setMonthOffset(0)} accessibilityRole="button">
+              <Text style={[styles.backToday, { color: tokens.primary }]}>Back to today</Text>
+            </Pressable>
           ) : (
-            <Text style={{ color: tokens.muted, fontSize: 11 }}>
+            <Text style={[styles.monthText, { color: tokens.textTertiary }]}>
               {monthName(view.month)} {view.year}
             </Text>
           )}
-          <TouchableOpacity onPress={() => setMonthOffset((m) => m + 1)} style={[styles.navBtn, { borderColor: tokens.border }]} hitSlop={4}>
-            <Text style={{ color: tokens.text, fontSize: 18 }}>→</Text>
-          </TouchableOpacity>
+          <Pressable
+            onPress={() => setMonthOffset((m) => m + 1)}
+            style={[styles.navBtn, { borderColor: tokens.border, backgroundColor: tokens.surface }]}
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+          >
+            <Text style={{ color: tokens.textPrimary, fontSize: 18 }}>→</Text>
+          </Pressable>
         </View>
 
-        <View style={[styles.calendarCard, { backgroundColor: tokens.card, borderColor: tokens.border, marginTop: 14 }]}>
-          <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-            {weekdayOrder(settings.weekStart).map((wd) => (
-              <Text key={wd} style={{ flex: 1, textAlign: 'center', color: tokens.muted, fontSize: 10, fontWeight: '700' }}>
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][wd]}
+        <Card style={styles.calendarCard}>
+          <View style={styles.weekdayRow}>
+            {weekdayOrder(settings.weekStart).map((wd: number) => (
+              <Text
+                key={wd}
+                style={[styles.weekday, { color: tokens.textTertiary }]}
+              >
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][wd as number]}
               </Text>
             ))}
           </View>
           {grid.map((line, i) => (
-            <View key={`row-${i}`} style={{ flexDirection: 'row' }}>
+            <View key={`row-${i}`} style={styles.weekRow}>
               {line.map((cell, j) => (
-                <View key={j} style={{ flex: 1, aspectRatio: 1 }}>
+                <View key={j} style={styles.dayCell}>
                   {cell ? (
-                    <TouchableOpacity
+                    <Pressable
                       onPress={() => setSelectedKey(cell.key)}
-                      style={{
-                        flex: 1,
-                        borderRadius: 10,
-                        margin: 2,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderWidth: 1,
-                        borderColor:
-                          cell.key === selectedKey ? tokens.accent : cell.key === todayKey ? tokens.border : 'transparent',
-                      }}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: cell.key === selectedKey }}
+                      accessibilityLabel={cell.key}
+                      style={[
+                        styles.dayBox,
+                        {
+                          borderColor:
+                            cell.key === selectedKey
+                              ? tokens.primary
+                              : cell.key === todayKey
+                                ? tokens.borderStrong
+                                : 'transparent',
+                          backgroundColor:
+                            cell.key === selectedKey ? tokens.primaryContainer : 'transparent',
+                        },
+                      ]}
                     >
-                      <Text style={{ color: tokens.text, fontSize: 13, fontWeight: cell.key === todayKey ? '800' : '400' }}>
+                      <Text
+                        style={[
+                          styles.dayNumber,
+                          {
+                            color:
+                              cell.key === selectedKey ? tokens.onPrimaryContainer : tokens.textPrimary,
+                            fontWeight: cell.key === todayKey ? '800' : '400',
+                          },
+                        ]}
+                      >
                         {Number(cell.key.slice(8))}
                       </Text>
                       {cell.scheduled > 0 ? (
                         <View
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: 3,
-                            marginTop: 2,
-                            backgroundColor:
-                              cell.rate >= 1 ? tokens.accent : cell.rate > 0 ? tokens.accent : cell.future ? tokens.border : tokens.danger,
-                            opacity: cell.rate > 0 && cell.rate < 1 ? 0.45 : 1,
-                          }}
+                          style={[
+                            styles.dot,
+                            {
+                              backgroundColor:
+                                cell.rate >= 1
+                                  ? tokens.success
+                                  : cell.rate > 0
+                                    ? tokens.primary
+                                    : cell.future
+                                      ? tokens.borderStrong
+                                      : tokens.error,
+                              opacity: cell.rate > 0 && cell.rate < 1 ? 0.6 : 1,
+                            },
+                          ]}
                         />
                       ) : null}
-                    </TouchableOpacity>
+                    </Pressable>
                   ) : null}
                 </View>
               ))}
             </View>
           ))}
-          <Text style={{ color: tokens.muted, fontSize: 10, marginTop: 8 }}>
-            ● all done   ◑ partial   red = missed   gray = scheduled / future
-          </Text>
-        </View>
+        </Card>
 
-        <View style={[styles.calendarCard, { backgroundColor: tokens.card, borderColor: tokens.border, marginTop: 16 }]}>
-          <Text style={{ color: tokens.text, fontSize: 15, fontWeight: '800' }}>{formatDateLabel(selectedKey)}</Text>
+        <Card style={styles.calendarCard}>
+          <Text style={[styles.detailTitle, { color: tokens.textPrimary }]}>
+            {formatDateLabel(selectedKey)}
+          </Text>
           {selectedKey > todayKey ? (
-            <Text style={{ color: tokens.sub, fontSize: 12, marginTop: 4 }}>Future day — not part of history yet.</Text>
+            <Text style={[styles.detailHint, { color: tokens.textSecondary }]}>
+              Future day — not part of history yet.
+            </Text>
           ) : null}
           {dayDetail.every((d) => d.state === null) ? (
-            <Text style={{ color: tokens.muted, fontSize: 13, marginTop: 10 }}>
+            <Text style={[styles.detailHint, { color: tokens.textTertiary }]}>
               No active habits scheduled on this date.
             </Text>
           ) : (
-            <View style={{ marginTop: 10 }}>
+            <View style={styles.detailList}>
               {dayDetail
                 .filter((d) => d.state !== null)
                 .map(({ habit, state }) => (
                   <View key={habit.id} style={[styles.detailRow, { borderTopColor: tokens.border }]}>
-                    <Text style={{ fontSize: 16, marginRight: 10 }}>{habit.emoji}</Text>
-                    <Text numberOfLines={1} style={{ color: tokens.text, fontSize: 14, fontWeight: '600', flex: 1 }}>
+                    <Text style={styles.detailEmoji}>{habit.emoji}</Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.detailName, { color: tokens.textPrimary }]}
+                    >
                       {habit.title}
                     </Text>
-                    <Text
-                      style={{
-                        color:
-                          state === 'done'
-                            ? tokens.accent
-                            : state === 'missed'
-                              ? tokens.danger
-                              : state === 'partial'
-                                ? tokens.accent
-                                : tokens.sub,
-                        fontSize: 12,
-                        fontWeight: '700',
-                      }}
-                    >
+                    <Text style={[styles.detailState, { color: stateColor(state) }]}>
                       {state === 'done'
-                        ? '✓ Done'
+                        ? 'Done'
                         : state === 'missed'
                           ? 'Missed'
                           : state === 'partial'
@@ -208,14 +254,104 @@ export default function Calendar() {
                 ))}
             </View>
           )}
-        </View>
+        </Card>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  calendarCard: { borderRadius: 20, borderWidth: 1, padding: 14 },
-  navBtn: { width: 44, height: 44, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderTopWidth: 1, minHeight: 44 },
+  screen: {
+    flex: 1,
+  },
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  navBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backToday: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  monthText: {
+    fontSize: 12,
+  },
+  calendarCard: {
+    marginTop: 16,
+  },
+  weekdayRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  weekday: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  weekRow: {
+    flexDirection: 'row',
+  },
+  dayCell: {
+    flex: 1,
+    aspectRatio: 1,
+  },
+  dayBox: {
+    flex: 1,
+    borderRadius: 12,
+    margin: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  dayNumber: {
+    fontSize: 13,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 3,
+  },
+  detailTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  detailHint: {
+    fontSize: 12.5,
+    marginTop: 6,
+  },
+  detailList: {
+    marginTop: 8,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth * 2,
+    minHeight: 46,
+  },
+  detailEmoji: {
+    fontSize: 16,
+    marginRight: 10,
+  },
+  detailName: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  detailState: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });

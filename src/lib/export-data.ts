@@ -37,7 +37,7 @@ function buildExportPayload(data: AppData): string {
 function requireNative<T>(name: string): T | null {
   if (Platform.OS === 'web') return null;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require(name) as T;
   } catch {
     return null;
@@ -72,7 +72,7 @@ export async function exportDataAsJson(data: AppData): Promise<ExportResult> {
   }
   try {
     const { File, Paths } = fs;
-    const file = new File(Paths.documents, filename);
+    const file = new File(Paths.document, filename);
     if (!file.exists) file.create({ overwrite: false });
     file.write(payload);
     const available = await sharing.isAvailableAsync();

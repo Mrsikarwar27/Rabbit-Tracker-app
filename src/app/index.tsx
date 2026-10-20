@@ -1,20 +1,34 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
-import { Link, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useHabitStore } from '@/hooks/useHabitStore';
+import { useHabitStore, useTheme } from '@/hooks/useHabitStore';
 import { useToday } from '@/hooks/useToday';
 import { HabitRow } from '@/components/HabitRow';
 import { WeekStrip } from '@/components/WeekStrip';
-import { currentStreak, isCompletedOn, isScheduledOn } from '@/lib/streaks';
-import { formatDateLabel } from '@/lib/dates';
+import { BottomNav } from '@/components/BottomNav';
+import { NewHabitFab } from '@/components/NewHabitFab';
+import { Card, Chip, PrimaryButton, ProgressBar, ProgressRing, SectionLabel } from '@/components/ui';
+import { currentStreak, isCompletedOn, isScheduledOn, longestStreak } from '@/lib/streaks';
+import { formatDateLabel, parseDateKey, weekdayShort } from '@/lib/dates';
+
+type FilterKey = 'all' | 'morning' | 'afternoon' | 'evening' | 'pending' | 'completed';
+
+const FILTERS: readonly { key: FilterKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'morning', label: 'Morning' },
+  { key: 'afternoon', label: 'Afternoon' },
+  { key: 'evening', label: 'Evening' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'completed', label: 'Completed' },
+];
 
 function greeting(hour: number): string {
   if (hour < 5) return 'Late night';
@@ -23,270 +37,466 @@ function greeting(hour: number): string {
   return 'Good evening';
 }
 
+/** Time-of-day band of a habit, derived from its reminder. */
+function bandOf(reminderTime: string | undefined): 'morning' | 'afternoon' | 'evening' | null {
+  if (!reminderTime) return null;
+  const hour = parseInt(reminderTime.slice(0, 2), 10);
+  if (!Number.isFinite(hour)) return null;
+  if (hour < 12) return 'morning';
+  if (hour < 17) return 'afternoon';
+  return 'evening';
+}
+
 export default function Index() {
-  const {
-    hydrated,
-    activeHabits,
-    completions,
-    settings,
-    tokens,
-    toggleCompletion,
-    stepCompletion,
-    getHabit,
-  } = useHabitStore();
+  const { hydrated, activeHabits, completions, settings, toggleCompletion, stepCompletion } =
+    useHabitStore();
+  const { tokens } = useTheme();
   const todayKey = useToday();
   const insets = useSafeAreaInsets();
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterKey>('all');
 
-  const today = useMemo(() => {
-    const scheduled = activeHabits.filter((h) => isScheduledOn(h, todayKey));
-    const done = scheduled.filter((h) => isCompletedOn(h, completions, todayKey));
-    return { scheduled, done, rate: scheduled.length ? done.length / scheduled.length : 0 };
-  }, [activeHabits, completions, todayKey]);
+  const dayKey = selectedKey ?? todayKey;
+  const isToday = dayKey === todayKey;
 
-  const bestCurrentStreak = useMemo(
+  /** Habits scheduled on the selected day, split by completion state. */
+  const day = useMemo(() => {
+    const scheduled = activeHabits.filter((h) => isScheduledOn(h, dayKey));
+    const done = scheduled.filter((h) => isCompletedOn(h, completions, dayKey));
+    const pending = scheduled.filter((h) => !isCompletedOn(h, completions, dayKey));
+    return {
+      scheduled,
+      done,
+      pending,
+      rate: scheduled.length ? done.length / scheduled.length : 0,
+    };
+  }, [activeHabits, completions, dayKey]);
+
+  /** Counts for the filter chips — all derived from the real data. */
+  const counts = useMemo(() => {
+    const byBand = { morning: 0, afternoon: 0, evening: 0 };
+    for (const habit of day.scheduled) {
+      const band = bandOf(habit.reminder?.time);
+      if (band) byBand[band] += 1;
+    }
+    return {
+      all: day.scheduled.length,
+      morning: byBand.morning,
+      afternoon: byBand.afternoon,
+      evening: byBand.evening,
+      pending: day.pending.length,
+      completed: day.done.length,
+    } as Record<FilterKey, number>;
+  }, [day]);
+
+  /** The list the user currently sees. */
+  const visible = useMemo(() => {
+    switch (filter) {
+      case 'morning':
+      case 'afternoon':
+      case 'evening':
+        return day.scheduled.filter((h) => bandOf(h.reminder?.time) === filter);
+      case 'pending':
+        return day.pending;
+      case 'completed':
+        return day.done;
+      default:
+        return day.scheduled;
+    }
+  }, [day, filter]);
+
+  const streak = useMemo(
     () =>
       activeHabits.reduce((max, h) => Math.max(max, currentStreak(h, completions, todayKey)), 0),
     [activeHabits, completions, todayKey],
   );
 
-  const sorted = useMemo(() => {
-    const incomplete = today.scheduled.filter((h) => !today.done.includes(h));
-    const done = today.done;
-    const other = activeHabits.filter((h) => !isScheduledOn(h, todayKey));
-    return { incomplete, done, other };
-  }, [today, activeHabits, todayKey]);
+  const best = useMemo(
+    () =>
+      activeHabits.reduce((max, h) => Math.max(max, longestStreak(h, completions, todayKey)), 0),
+    [activeHabits, completions, todayKey],
+  );
 
-  const isLoading = !hydrated;
+  const percent = Math.round(day.rate * 100);
+  const dayLabel = formatDateLabel(dayKey);
+  const shortDay = `${weekdayShort(parseDateKey(dayKey).getDay())} ${parseDateKey(dayKey).getDate()}`;
 
   return (
-    <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <StatusBar barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={tokens.bg} />
+    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
+      <StatusBar
+        barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={tokens.background}
+      />
       <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 100 }}
+        contentContainerStyle={{
+          paddingTop: insets.top + 14,
+          paddingBottom: insets.bottom + 130,
+        }}
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Greeting */}
-        <View style={{ paddingHorizontal: 20 }}>
-          <Text style={{ color: tokens.accent, fontSize: 12, fontWeight: '700', letterSpacing: 3 }}>
-            TODAY
-          </Text>
-          <Text style={{ color: tokens.text, fontSize: 34, fontWeight: '800', marginTop: 10 }}>
-            {greeting(new Date().getHours())}.
-          </Text>
-          <Text style={{ color: tokens.sub, fontSize: 13, marginTop: 4 }}>{formatDateLabel(todayKey)}</Text>
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <View style={styles.header}>
+          <View style={styles.brandBlock}>
+            <Text style={[styles.brand, { color: tokens.primary }]}>MOMENTUM</Text>
+            <Text style={[styles.greeting, { color: tokens.textPrimary }]}>
+              {greeting(new Date().getHours())}.
+            </Text>
+            <Text style={[styles.dateLine, { color: tokens.textSecondary }]}>{dayLabel}</Text>
+          </View>
+          <View style={styles.headerActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Reminders and calendar"
+              onPress={() => router.push('/calendar')}
+              style={({ pressed }) => [
+                styles.iconButton,
+                {
+                  backgroundColor: tokens.surface,
+                  borderColor: tokens.border,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Text style={styles.iconGlyph}>🔔</Text>
+              {day.pending.length > 0 ? (
+                <View style={[styles.badge, { backgroundColor: tokens.primary }]} />
+              ) : null}
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Settings"
+              onPress={() => router.push('/settings')}
+              style={({ pressed }) => [
+                styles.iconButton,
+                {
+                  backgroundColor: tokens.surface,
+                  borderColor: tokens.border,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Text style={styles.iconGlyph}>⚙️</Text>
+            </Pressable>
+          </View>
         </View>
 
-        {/* Progress card */}
-        <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>
-            TODAY'S PROGRESS
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginTop: 12 }}>
-            <Text style={{ color: tokens.accent, fontSize: 30, fontWeight: '800' }}>
-              {Math.round(today.rate * 100)}%
-            </Text>
-            <Text style={{ color: tokens.sub, fontSize: 14, marginLeft: 10, marginBottom: 4 }}>
-              {today.done.length} of {today.scheduled.length} completed
-            </Text>
-          </View>
-          <View style={{ height: 10, borderRadius: 5, backgroundColor: tokens.border, marginTop: 14, overflow: 'hidden' }}>
-            <View
-              style={{
-                height: '100%',
-                borderRadius: 5,
-                backgroundColor: tokens.accent,
-                width: `${Math.round(today.rate * 100)}%` as `${number}%`,
-              }}
-            />
-          </View>
+        {/* ── Progress card ─────────────────────────────────────────────── */}
+        <Card style={styles.progressCard}>
+          <SectionLabel>{isToday ? "TODAY'S PROGRESS" : `${shortDay.toUpperCase()} PROGRESS`}</SectionLabel>
 
-          {/* Streak + weekly overview */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 18 }}>
-            <View style={{ alignItems: 'center', marginRight: 22 }}>
-              <Text style={{ color: tokens.text, fontSize: 22, fontWeight: '800' }}>🔥 {bestCurrentStreak}</Text>
-              <Text style={{ color: tokens.sub, fontSize: 11, marginTop: 2 }}>current streak</Text>
+          <View style={styles.progressRow}>
+            <ProgressRing value={day.rate} size={96} strokeWidth={9}>
+              <Text style={[styles.ringValue, { color: tokens.textPrimary }]}>{percent}%</Text>
+              <Text style={[styles.ringCaption, { color: tokens.textSecondary }]}>done</Text>
+            </ProgressRing>
+
+            <View style={styles.progressInfo}>
+              <Text style={[styles.progressCount, { color: tokens.textPrimary }]}>
+                {day.done.length} of {day.scheduled.length}
+              </Text>
+              <Text style={[styles.progressCaption, { color: tokens.textSecondary }]}>
+                {day.scheduled.length === 0
+                  ? 'nothing scheduled'
+                  : isToday
+                    ? 'completed today'
+                    : 'completed'}
+              </Text>
+              <ProgressBar value={day.rate} style={styles.progressBar} />
             </View>
           </View>
-          <View style={{ marginTop: 16 }}>
+
+          <View style={[styles.statRow, { borderTopColor: tokens.border }]}>
+            <View style={styles.stat}>
+              <Text style={[styles.statValue, { color: tokens.textPrimary }]}>🔥 {streak}</Text>
+              <Text style={[styles.statLabel, { color: tokens.textSecondary }]}>current streak</Text>
+            </View>
+            <View style={[styles.statDivider, { backgroundColor: tokens.border }]} />
+            <View style={styles.stat}>
+              <Text style={[styles.statValue, { color: tokens.textPrimary }]}>🏆 {best}</Text>
+              <Text style={[styles.statLabel, { color: tokens.textSecondary }]}>personal best</Text>
+            </View>
+            <View style={[styles.statDivider, { backgroundColor: tokens.border }]} />
+            <View style={styles.stat}>
+              <Text style={[styles.statValue, { color: tokens.textPrimary }]}>{day.done.length}</Text>
+              <Text style={[styles.statLabel, { color: tokens.textSecondary }]}>habits done</Text>
+            </View>
+          </View>
+        </Card>
+
+        {/* ── Week strip ────────────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <SectionLabel>THIS WEEK</SectionLabel>
+          <View style={styles.weekWrap}>
             <WeekStrip
               habits={activeHabits}
               completions={completions}
               weekStart={settings.weekStart}
               todayKey={todayKey}
-              tokens={tokens}
+              selectedKey={dayKey}
+              onSelect={setSelectedKey}
             />
           </View>
         </View>
 
-        {/* Content states */}
-        {isLoading ? (
-          <Text style={{ color: tokens.muted, textAlign: 'center', marginTop: 40 }}>Restoring your data…</Text>
-        ) : activeHabits.length === 0 ? (
-          <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border, marginTop: 28, alignItems: 'center', paddingVertical: 30 }]}>
-            <Text style={{ fontSize: 40 }}>🌱</Text>
-            <Text style={{ color: tokens.text, fontSize: 17, fontWeight: '700', marginTop: 10 }}>
-              No habits yet
-            </Text>
-            <Text style={{ color: tokens.sub, fontSize: 13, marginTop: 6, textAlign: 'center', paddingHorizontal: 30 }}>
-              Start with one small habit. Add your first to begin your streak.
-            </Text>
-            <Link href="/habit-form" asChild>
-              <TouchableOpacity
-                style={{
-                  backgroundColor: tokens.accent,
-                  borderRadius: 14,
-                  paddingVertical: 13,
-                  paddingHorizontal: 22,
-                  marginTop: 18,
-                  minHeight: 48,
-                  justifyContent: 'center',
-                }}
-              >
-                <Text style={{ color: tokens.onAccent, fontWeight: '700', fontSize: 15 }}>+ Add habit</Text>
-              </TouchableOpacity>
-            </Link>
-          </View>
-        ) : (
-          <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border, marginTop: 28 }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>
-                TODAY'S HABITS
-              </Text>
-              <Link href="/habits" asChild>
-                <TouchableOpacity hitSlop={8}>
-                  <Text style={{ color: tokens.sub, fontSize: 12, fontWeight: '700' }}>Edit habits</Text>
-                </TouchableOpacity>
-              </Link>
-            </View>
+        {/* ── Filters ───────────────────────────────────────────────────── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+          style={styles.filterScroll}
+        >
+          {FILTERS.map((f) => (
+            <Chip
+              key={f.key}
+              label={f.label}
+              count={counts[f.key]}
+              active={filter === f.key}
+              onPress={() => setFilter(f.key)}
+            />
+          ))}
+        </ScrollView>
 
-            {sorted.incomplete.length + sorted.done.length + sorted.other.length === 0 ? (
-              <Text style={{ color: tokens.sub, fontSize: 13, marginTop: 14 }}>
-                Rest day — nothing scheduled today.
-              </Text>
-            ) : (
-              <View style={{ marginTop: 8 }}>
-                {sorted.incomplete.map((h) => (
-                  <HabitRow
-                    key={h.id}
-                    habit={h}
-                    tokens={tokens}
-                    completions={completions}
-                    dateKey={todayKey}
-                    onPress={() => router.push(`/habit-form?id=${h.id}`)}
-                    onToggle={() => toggleCompletion(h.id, todayKey)}
-                    onStep={(d) => stepCompletion(h.id, todayKey, d)}
-                  />
-                ))}
-                {sorted.done.length > 0 && (
-                  <View style={{ borderTopWidth: 1, borderTopColor: tokens.border, marginTop: 8, paddingTop: 10 }}>
-                    <Text style={{ color: tokens.muted, fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 4 }}>
-                      DONE ✓
-                    </Text>
-                    {sorted.done.map((h) => (
-                      <HabitRow
-                        key={h.id}
-                        habit={h}
-                        tokens={tokens}
-                        completions={completions}
-                        dateKey={todayKey}
-                        onPress={() => router.push(`/habit-form?id=${h.id}`)}
-                        onToggle={() => toggleCompletion(h.id, todayKey)}
-                        onStep={(d) => stepCompletion(h.id, todayKey, d)}
-                      />
-                    ))}
-                  </View>
-                )}
-                {sorted.other.length > 0 && (
-                  <View style={{ borderTopWidth: 1, borderTopColor: tokens.border, marginTop: 8, paddingTop: 10 }}>
-                    <Text style={{ color: tokens.muted, fontSize: 11, fontWeight: '700', letterSpacing: 2, marginBottom: 4 }}>
-                      NOT SCHEDULED TODAY
-                    </Text>
-                    {sorted.other.map((h) => (
-                      <HabitRow
-                        key={h.id}
-                        habit={h}
-                        tokens={tokens}
-                        completions={completions}
-                        dateKey={todayKey}
-                        disabled
-                        onPress={() => undefined}
-                        onToggle={() => undefined}
-                        onStep={() => undefined}
-                      />
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
+        {/* ── Habit list ────────────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <View style={styles.listHeader}>
+            <SectionLabel>
+              {isToday ? "TODAY'S HABITS" : `${shortDay.toUpperCase()} HABITS`}
+            </SectionLabel>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Manage habits"
+              onPress={() => router.push('/habits')}
+              hitSlop={8}
+            >
+              <Text style={[styles.link, { color: tokens.primary }]}>Manage</Text>
+            </Pressable>
           </View>
-        )}
+
+          {!hydrated ? (
+            <Card style={styles.stateCard}>
+              <Text style={[styles.stateText, { color: tokens.textSecondary }]}>
+                Restoring your data…
+              </Text>
+            </Card>
+          ) : activeHabits.length === 0 ? (
+            <Card style={styles.stateCard}>
+              <Text style={styles.stateEmoji}>🌱</Text>
+              <Text style={[styles.stateTitle, { color: tokens.textPrimary }]}>No habits yet</Text>
+              <Text style={[styles.stateText, { color: tokens.textSecondary }]}>
+                Start with one small habit. Add your first to begin your streak.
+              </Text>
+              <PrimaryButton
+                label="Add your first habit"
+                onPress={() => router.push('/habit-form')}
+                style={styles.stateButton}
+              />
+            </Card>
+          ) : visible.length === 0 ? (
+            <Card style={styles.stateCard}>
+              <Text style={styles.stateEmoji}>✅</Text>
+              <Text style={[styles.stateTitle, { color: tokens.textPrimary }]}>
+                {filter === 'completed'
+                  ? 'Nothing completed yet'
+                  : filter === 'pending'
+                    ? 'All done for this day'
+                    : 'Nothing in this filter'}
+              </Text>
+              <Text style={[styles.stateText, { color: tokens.textSecondary }]}>
+                {filter === 'completed'
+                  ? 'Finish a habit and it will show up here.'
+                  : filter === 'pending'
+                    ? 'Every scheduled habit is checked off. Nice work.'
+                    : 'Try another filter, or add a habit with a reminder time.'}
+              </Text>
+            </Card>
+          ) : (
+            <Card padded={false} style={styles.listCard}>
+              {visible.map((habit) => (
+                <HabitRow
+                  key={habit.id}
+                  habit={habit}
+                  completions={completions}
+                  dateKey={dayKey}
+                  onPress={() => router.push(`/habit-form?id=${habit.id}`)}
+                  onToggle={() => toggleCompletion(habit.id, dayKey)}
+                  onStep={(direction) => stepCompletion(habit.id, dayKey, direction)}
+                />
+              ))}
+            </Card>
+          )}
+        </View>
       </ScrollView>
 
-      {/* Bottom navigation */}
-      <View
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: tokens.card,
-          borderTopWidth: 1,
-          borderTopColor: tokens.border,
-          flexDirection: 'row',
-          paddingBottom: insets.bottom + 6,
-          paddingTop: 8,
-        }}
-      >
-        {[
-          { href: '/', label: 'Home', emoji: '☀️', active: true },
-          { href: '/calendar', label: 'Calendar', emoji: '📅', active: false },
-          { href: '/analytics', label: 'Stats', emoji: '📈', active: false },
-          { href: '/settings', label: 'Settings', emoji: '⚙️', active: false },
-        ].map((tab) => (
-          <Link key={tab.href} href={tab.href} asChild>
-            <TouchableOpacity style={{ flex: 1, alignItems: 'center', paddingVertical: 6, minHeight: 48, justifyContent: 'center' }}>
-              <Text style={{ fontSize: 18 }}>{tab.emoji}</Text>
-              <Text style={{ color: tab.active ? tokens.accent : tokens.sub, fontSize: 10, marginTop: 2, fontWeight: tab.active ? '700' : '400' }}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          </Link>
-        ))}
-      </View>
-
-      {/* Quick add */}
-      <Link href="/habit-form" asChild>
-        <TouchableOpacity
-          style={{
-            position: 'absolute',
-            right: 20,
-            bottom: insets.bottom + 80,
-            width: 56,
-            height: 56,
-            borderRadius: 28,
-            backgroundColor: tokens.accent,
-            alignItems: 'center',
-            justifyContent: 'center',
-            shadowColor: '#000',
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-            shadowOffset: { width: 0, height: 4 },
-          }}
-        >
-          <Text style={{ color: tokens.onAccent, fontSize: 28, fontWeight: '700', marginBottom: 2 }}>+</Text>
-        </TouchableOpacity>
-      </Link>
+      <NewHabitFab />
+      <BottomNav />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    marginHorizontal: 20,
-    borderRadius: 20,
+  screen: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  brandBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  brand: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 3,
+    marginBottom: 6,
+  },
+  greeting: {
+    fontSize: 30,
+    fontWeight: '800',
+    letterSpacing: -0.8,
+  },
+  dateLine: {
+    fontSize: 13.5,
+    marginTop: 4,
+    fontWeight: '500',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginLeft: 12,
+  },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     borderWidth: 1,
-    padding: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconGlyph: {
+    fontSize: 18,
+  },
+  badge: {
+    position: 'absolute',
+    top: 9,
+    right: 10,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  progressCard: {
+    marginHorizontal: 20,
     marginTop: 22,
-
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    gap: 18,
+  },
+  ringValue: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  ringCaption: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  progressInfo: {
+    flex: 1,
+  },
+  progressCount: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+  },
+  progressCaption: {
+    fontSize: 13,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  progressBar: {
+    marginTop: 12,
+  },
+  statRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    paddingTop: 14,
+    borderTopWidth: StyleSheet.hairlineWidth * 2,
+  },
+  stat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+  },
+  statValue: {
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  statLabel: {
+    fontSize: 10.5,
+    marginTop: 3,
+    fontWeight: '600',
+  },
+  section: {
+    marginHorizontal: 20,
+    marginTop: 24,
+  },
+  weekWrap: {
+    marginTop: 10,
+  },
+  filterScroll: {
+    marginTop: 20,
+  },
+  filterRow: {
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  listHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  link: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  listCard: {
+    overflow: 'hidden',
+  },
+  stateCard: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  stateEmoji: {
+    fontSize: 40,
+  },
+  stateTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 12,
+    letterSpacing: -0.3,
+  },
+  stateText: {
+    fontSize: 13.5,
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 18,
+    lineHeight: 20,
+  },
+  stateButton: {
+    marginTop: 20,
+    alignSelf: 'stretch',
   },
 });

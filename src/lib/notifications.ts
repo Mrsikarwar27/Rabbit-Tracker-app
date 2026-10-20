@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { Habit, HabitReminder } from './types';
+import type { Habit } from './types';
 import { makeId } from './storage';
 
 /**
@@ -27,7 +27,7 @@ function notifications(): NotificationsModule | null {
   if (Platform.OS === 'web') return null;
   if (cached === undefined) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       cached = require('expo-notifications') as NotificationsModule;
       cached.setNotificationHandler({
         handleNotification: async () => ({
@@ -54,7 +54,7 @@ export function remindersAvailable(): boolean {
   return Platform.OS !== 'web' && notifications() !== null;
 }
 
-async function ensureChannel(): Promise<void> {
+export async function ensureChannel(): Promise<void> {
   const mod = notifications();
   if (!mod || Platform.OS !== 'android') return;
   try {
@@ -102,8 +102,16 @@ function reminderContent(habit: Habit): { title: string; body: string } {
   };
 }
 
-function reminderTime(habit: Habit): HabitReminder {
-  return habit.reminder ?? { hour: 8, minute: 0 };
+function reminderTime(habit: Habit): { hour: number; minute: number } {
+  const r = habit.reminder;
+  if (r?.time) {
+    const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(r.time.trim());
+    if (match) return { hour: parseInt(match[1], 10), minute: parseInt(match[2], 10) };
+  }
+  if (typeof r?.hour === 'number' && typeof r?.minute === 'number') {
+    return { hour: r.hour, minute: r.minute };
+  }
+  return { hour: 8, minute: 0 };
 }
 
 /**
@@ -126,10 +134,7 @@ export async function syncHabitReminders(
       if (habit.archived || habit.reminder === null) continue;
       const ids: string[] = [];
       const content = reminderContent(habit);
-      const triggers: Array<
-        | { type: 'daily'; hour: number; minute: number; channelId: string }
-        | { type: 'weekly'; weekday: number; hour: number; minute: number; channelId: string }
-      > = [];
+      const triggers: ({ type: 'daily'; hour: number; minute: number; channelId: string } | { type: 'weekly'; weekday: number; hour: number; minute: number; channelId: string })[] = [];
       if (habit.frequency.type === 'daily') {
         triggers.push({
           type: 'daily',
@@ -232,4 +237,130 @@ export async function cancelAllReminders(): Promise<void> {
 export function reminderTriggerCount(habit: Habit): number {
   if (habit.reminder === null) return 0;
   return habit.frequency.type === 'daily' ? 1 : Math.max(habit.frequency.days.length, 0);
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Store-facing adapter.
+ *
+ * `useHabitStore` tracks reminder times as a local 'HH:MM' string and weekday
+ * selections as `frequency.weekdays`, so these read the habit structurally
+ * instead of assuming the legacy `{ hour, minute }` / `.days` shapes.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export interface ReminderHabitLike {
+  id: string;
+  title: string;
+  emoji: string;
+  archived: boolean;
+  frequency: { type: 'daily' } | { type: 'weekdays'; weekdays?: number[]; days?: number[] };
+  reminder?: { time?: string; hour?: number; minute?: number } | null;
+}
+
+/** Selected weekdays for a habit; empty means "daily". */
+function reminderDays(frequency: ReminderHabitLike['frequency']): number[] {
+  if (frequency.type === 'daily') return [];
+  return frequency.weekdays ?? frequency.days ?? [];
+}
+
+/** 'HH:MM' (current) or { hour, minute } (legacy) → 24h clock, or null. */
+function reminderClock(habit: ReminderHabitLike): { hour: number; minute: number } | null {
+  const reminder = habit.reminder;
+  if (!reminder) return null;
+  if (typeof reminder.time === 'string') {
+    const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(reminder.time.trim());
+    return match ? { hour: parseInt(match[1], 10), minute: parseInt(match[2], 10) } : null;
+  }
+  if (typeof reminder.hour === 'number' && typeof reminder.minute === 'number') {
+    return { hour: reminder.hour, minute: reminder.minute };
+  }
+  return null;
+}
+
+/** Check permission without prompting. Never throws. */
+export async function getPermissionStatus(): Promise<{ granted: boolean; denied: boolean }> {
+  const mod = notifications();
+  if (!mod) return { granted: false, denied: false };
+  try {
+    const status = await mod.getPermissionsAsync();
+    return { granted: !!status.granted, denied: !status.granted && status.canAskAgain === false };
+  } catch {
+    return { granted: false, denied: false };
+  }
+}
+
+/** Prompt for permission once; resolves to whether reminders may be scheduled. */
+export async function requestPermission(): Promise<boolean> {
+  const mod = notifications();
+  if (!mod) return false;
+  try {
+    if ((await mod.getPermissionsAsync()).granted) return true;
+    return !!(await mod.requestPermissionsAsync()).granted;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reconcile the OS reminder schedule with the current habits.
+ *
+ * Cancels exactly the identifiers handed in via `previous` (rather than
+ * everything the app scheduled), then re-schedules from scratch, returning the
+ * new identifier map for the caller to persist. Resolves to `{}` on web, where
+ * expo-notifications is unavailable, and never throws — a denied or restricted
+ * alarm simply yields an empty schedule.
+ */
+export async function syncReminders(
+  habits: ReminderHabitLike[],
+  previous: Record<string, string[]>,
+  enabled: boolean,
+): Promise<Record<string, string[]>> {
+  const mod = notifications();
+  if (!mod) return {};
+
+  const stale = Object.values(previous ?? {}).flat().filter((id) => typeof id === 'string');
+  if (stale.length > 0) {
+    try {
+      await Promise.all(stale.map((id) => mod.cancelScheduledNotificationAsync(id)));
+    } catch {
+      // Identifiers may already have been cancelled or expired — nothing to do.
+    }
+  }
+
+  const result: Record<string, string[]> = {};
+  if (!enabled) return result;
+  await ensureChannel();
+
+  for (const habit of habits) {
+    if (habit.archived) continue;
+    const clock = reminderClock(habit);
+    if (!clock) continue;
+
+    const days = reminderDays(habit.frequency);
+    const content = { title: `${habit.emoji} ${habit.title}`, body: 'Time to check it off! ✅' };
+    // expo-notifications WEEKLY weekday runs 1–7 with 1 = Sunday, while ours is
+    // 0–6 with 0 = Sunday, hence the +1.
+    const triggers =
+      days.length === 0
+        ? [{ type: 'daily' as const, hour: clock.hour, minute: clock.minute, channelId: REMINDER_CHANNEL_ID }]
+        : days.map((day) => ({
+            type: 'weekly' as const,
+            weekday: day + 1,
+            hour: clock.hour,
+            minute: clock.minute,
+            channelId: REMINDER_CHANNEL_ID,
+          }));
+
+    const ids: string[] = [];
+    for (const trigger of triggers) {
+      try {
+        ids.push(await mod.scheduleNotificationAsync({ content, trigger }));
+      } catch (err) {
+        // Some OEMs reject scheduling under battery restrictions. Skip that one
+        // reminder but keep the rest of the schedule intact.
+        console.warn('[notifications] schedule failed', err);
+      }
+    }
+    if (ids.length > 0) result[habit.id] = ids;
+  }
+  return result;
 }

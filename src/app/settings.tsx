@@ -1,23 +1,24 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useHabitStore } from '@/hooks/useHabitStore';
+import { useHabitStore, useTheme } from '@/hooks/useHabitStore';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { Card, OutlineButton, SectionLabel } from '@/components/ui';
 import { requestPermission } from '@/lib/notifications';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 export default function Settings() {
   const {
-    tokens,
     settings,
     updateSettings,
     notificationStatus,
@@ -26,41 +27,12 @@ export default function Settings() {
     exportData,
     clearAllData,
   } = useHabitStore();
+  const { tokens, accent, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState(false);
 
-  const sector = (label: string, options: Array<{ value: string; label: string }>, value: string, onPick: (v: string) => void) => (
-    <View style={{ marginTop: 16 }}>
-      <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>{label}</Text>
-      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-        {options.map((o) => (
-          <TouchableOpacity
-            key={o.value}
-            onPress={() => onPick(o.value)}
-            style={{
-              flex: 1,
-              paddingVertical: 12,
-              borderRadius: 12,
-              borderWidth: 1,
-              minHeight: 46,
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderColor: value === o.value ? tokens.accent : tokens.border,
-              backgroundColor: value === o.value ? tokens.card : tokens.bg,
-            }}
-          >
-            <Text style={{ color: value === o.value ? tokens.accent : tokens.sub, fontSize: 13, fontWeight: '700' }}>
-              {o.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </View>
-  );
-
   const toggleNotifications = async () => {
     if (!settings.notificationsEnabled) {
-      // Turning ON: request permission if needed, then enable.
       const granted = await requestPermission();
       await refreshNotificationStatus();
       if (!granted) {
@@ -122,127 +94,112 @@ export default function Settings() {
         ? 'Permission denied — enable in system settings'
         : 'Not requested yet';
 
+  const modeLabel = mode === 'system' ? 'System' : mode === 'dark' ? 'Dark' : 'Light';
+
   return (
-    <View style={{ flex: 1, backgroundColor: tokens.bg }}>
+    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
       <StatusBar
         barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor={tokens.bg}
+        backgroundColor={tokens.background}
       />
-      <ScreenHeader title="Settings" subtitle="Personalize and manage your data" tokens={tokens} showBack />
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 36 }} keyboardShouldPersistTaps="handled">
-        <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>APPEARANCE</Text>
-          {sector(
-            'Theme',
-            [
-              { value: 'dark', label: 'Dark' },
-              { value: 'light', label: 'Light' },
-              { value: 'system', label: 'System' },
-            ],
-            settings.theme,
-            (v) => updateSettings({ theme: v as 'dark' | 'light' | 'system' }),
-          )}
-          {sector(
-            'Week starts on',
-            [
-              { value: 'sun', label: 'Sunday' },
-              { value: 'mon', label: 'Monday' },
-            ],
-            settings.weekStart,
-            (v) => updateSettings({ weekStart: v as 'sun' | 'mon' }),
-          )}
-        </View>
+      <ScreenHeader title="Settings" subtitle="Personalize and manage your data" showBack />
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingBottom: insets.bottom + 36,
+        }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* ── Appearance ─────────────────────────────────────────────────── */}
+        <Card style={styles.card}>
+          <SectionLabel>APPEARANCE</SectionLabel>
+          <Pressable
+            onPress={() => router.push('/appearance')}
+            accessibilityRole="button"
+            accessibilityLabel="Open appearance settings"
+            style={({ pressed }) => [styles.linkRow, { opacity: pressed ? 0.7 : 1 }]}
+          >
+            <View style={[styles.swatch, { backgroundColor: accent }]} />
+            <View style={styles.linkText}>
+              <Text style={[styles.linkTitle, { color: tokens.textPrimary }]}>Theme & colours</Text>
+              <Text style={[styles.linkCaption, { color: tokens.textSecondary }]}>
+                {modeLabel} mode · {accent.toUpperCase()}
+              </Text>
+            </View>
+            <Text style={[styles.chevron, { color: tokens.textSecondary }]}>›</Text>
+          </Pressable>
+        </Card>
 
-        <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>REMINDERS</Text>
-          <TouchableOpacity
+        {/* ── Reminders ──────────────────────────────────────────────────── */}
+        <Card style={styles.card}>
+          <SectionLabel>REMINDERS</SectionLabel>
+          <Pressable
             onPress={() => {
               void toggleNotifications();
             }}
             disabled={busy}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingVertical: 14,
-              marginTop: 8,
-              minHeight: 48,
-            }}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: settings.notificationsEnabled }}
+            accessibilityLabel="Habit reminders"
+            style={styles.switchRow}
           >
-            <View style={{ flex: 1, paddingRight: 10 }}>
-              <Text style={{ color: tokens.text, fontSize: 15, fontWeight: '600' }}>Habit reminders</Text>
-              <Text style={{ color: tokens.sub, fontSize: 12, marginTop: 2 }}>
+            <View style={styles.switchText}>
+              <Text style={[styles.linkTitle, { color: tokens.textPrimary }]}>Habit reminders</Text>
+              <Text style={[styles.linkCaption, { color: tokens.textSecondary }]}>
                 {settings.notificationsEnabled ? statusText : 'Off'}
               </Text>
             </View>
             <View
-              style={{
-                width: 52,
-                height: 30,
-                borderRadius: 15,
-                backgroundColor: settings.notificationsEnabled ? tokens.accent : tokens.border,
-                padding: 3,
-              }}
+              style={[
+                styles.switch,
+                {
+                  backgroundColor: settings.notificationsEnabled ? tokens.primary : tokens.surfaceContainer,
+                  borderColor: settings.notificationsEnabled ? tokens.primary : tokens.borderStrong,
+                },
+              ]}
             >
               <View
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  backgroundColor: tokens.mode === 'dark' ? '#101114' : '#FFFFFF',
-                  transform: [{ translateX: settings.notificationsEnabled ? 22 : 0 }],
-                }}
+                style={[
+                  styles.thumb,
+                  {
+                    backgroundColor: settings.notificationsEnabled ? tokens.onPrimary : tokens.textSecondary,
+                    transform: [{ translateX: settings.notificationsEnabled ? 22 : 0 }],
+                  },
+                ]}
               />
             </View>
-          </TouchableOpacity>
-          <Text style={{ color: tokens.muted, fontSize: 11, marginTop: 6 }}>
-            Per-habit reminder times live in each habit's form. On Android in Expo Go, exact delivery can be
-            delayed by battery optimization (Doze).
+          </Pressable>
+          <Text style={[styles.footnote, { color: tokens.textTertiary }]}>
+            Per-habit reminder times live in each habit&apos;s form. On Android in Expo Go, exact
+            delivery can be delayed by battery optimization (Doze).
           </Text>
-        </View>
+        </Card>
 
-        <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>DATA</Text>
-          <Text style={{ color: tokens.sub, fontSize: 12, marginTop: 8 }}>
+        {/* ── Data ───────────────────────────────────────────────────────── */}
+        <Card style={styles.card}>
+          <SectionLabel>DATA</SectionLabel>
+          <Text style={[styles.body, { color: tokens.textSecondary }]}>
             {habits.length} habit{habits.length === 1 ? '' : 's'} stored locally on this device.
           </Text>
-          <TouchableOpacity
+          <OutlineButton
+            label="Export data as JSON"
             onPress={() => {
               void exportJson();
             }}
             disabled={busy}
-            style={{
-              borderWidth: 1,
-              borderColor: tokens.border,
-              borderRadius: 12,
-              paddingVertical: 12,
-              alignItems: 'center',
-              marginTop: 12,
-              minHeight: 46,
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ color: tokens.text, fontSize: 13, fontWeight: '700' }}>Export data as JSON</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+            style={styles.action}
+          />
+          <OutlineButton
+            label="Clear all data…"
+            tone="danger"
             onPress={confirmClearData}
             disabled={busy}
-            style={{
-              borderWidth: 1,
-              borderColor: tokens.danger,
-              borderRadius: 12,
-              paddingVertical: 12,
-              alignItems: 'center',
-              marginTop: 10,
-              minHeight: 46,
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ color: tokens.danger, fontSize: 13, fontWeight: '700' }}>Clear all data…</Text>
-          </TouchableOpacity>
-        </View>
+            style={styles.action}
+          />
+        </Card>
 
-        <Text style={{ color: tokens.muted, fontSize: 11, textAlign: 'center', marginTop: 26 }}>
+        <Text style={[styles.footer, { color: tokens.textTertiary }]}>
           HabitTracker · runs fully offline
         </Text>
       </ScrollView>
@@ -251,5 +208,78 @@ export default function Settings() {
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 20, borderWidth: 1, padding: 16, marginTop: 18 },
+  screen: {
+    flex: 1,
+  },
+  card: {
+    marginTop: 16,
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    minHeight: 56,
+  },
+  swatch: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    marginRight: 12,
+  },
+  linkText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  linkTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  linkCaption: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  chevron: {
+    fontSize: 24,
+    marginLeft: 8,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    minHeight: 56,
+  },
+  switchText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  switch: {
+    width: 52,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    padding: 3,
+    justifyContent: 'center',
+  },
+  thumb: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+  },
+  footnote: {
+    fontSize: 11,
+    marginTop: 8,
+    lineHeight: 16,
+  },
+  body: {
+    fontSize: 13,
+    marginTop: 10,
+  },
+  action: {
+    marginTop: 12,
+  },
+  footer: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 26,
+  },
 });

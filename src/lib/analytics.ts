@@ -1,5 +1,6 @@
-import type { Completions, Habit } from './types';
+import type { Completions, Habit, CompletionMap } from './types';
 import { addDays, beginOfWeek, weekdayOf } from './date';
+import { daysInMonth, monthName } from './dates';
 import {
   currentStreak,
   effectiveTarget,
@@ -8,6 +9,7 @@ import {
   longestStreak,
   countFor,
 } from './habit-logic';
+import { isCompletedOn, isScheduledOn } from './streaks';
 
 /**
  * Pure analytics. Nothing here renders; screens memorize these results.
@@ -215,4 +217,177 @@ export function totalCompletedToday(
 /** Monday=1 label helper for 7-day strips. */
 export function weekdayLetter(day: string): string {
   return ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][weekdayOf(day)];
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Store-facing analytics.
+ *
+ * These build on the scheduling rules in `streaks.ts` (frequency + target),
+ * rather than the legacy `habit-logic.ts` helpers above, because the habit
+ * store persists `frequency.weekdays` and completion records keyed by date.
+ *
+ * Two invariants worth stating, since the screens depend on them:
+ *   • Days after `todayKey` report scheduled === 0, so future days can never
+ *     dilute a ratio (same rule the legacy weekTrend applies).
+ *   • A habit-day counts as done at count >= habit.target; days with nothing
+ *     scheduled yield rate 0 rather than NaN.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export interface DateRate {
+  dateKey: string;
+  scheduled: number;
+  completed: number;
+  /** 0..1 over scheduled habit-days; 0 when nothing was scheduled. */
+  rate: number;
+}
+
+function rateOn(
+  habits: Habit[],
+  completions: CompletionMap,
+  dateKey: string,
+  todayKey: string,
+): { scheduled: number; completed: number; rate: number } {
+  if (dateKey > todayKey) return { scheduled: 0, completed: 0, rate: 0 };
+  let scheduled = 0;
+  let completed = 0;
+  for (const habit of habits) {
+    if (!isScheduledOn(habit, dateKey)) continue;
+    scheduled += 1;
+    if (isCompletedOn(habit, completions, dateKey)) completed += 1;
+  }
+  return { scheduled, completed, rate: scheduled > 0 ? completed / scheduled : 0 };
+}
+
+/** Single-day completion rate. */
+export function rateForDate(
+  habits: Habit[],
+  completions: CompletionMap,
+  dateKey: string,
+): { scheduled: number; completed: number; rate: number } {
+  // No "today" bound here: the caller supplies a concrete past date.
+  return rateOn(habits, completions, dateKey, '9999-12-31');
+}
+
+/** Per-day rates for an explicit, oldest-first list of date keys. */
+export function dayRates(
+  habits: Habit[],
+  completions: CompletionMap,
+  dateKeys: string[],
+  todayKey: string,
+): DateRate[] {
+  return dateKeys.map((dateKey) => ({ dateKey, ...rateOn(habits, completions, dateKey, todayKey) }));
+}
+
+export interface HabitRate {
+  habit: Habit;
+  scheduled: number;
+  completed: number;
+  rate: number;
+}
+
+/**
+ * Per-habit performance over an explicit list of date keys, best first.
+ * Habits with nothing scheduled in the window sink to the bottom.
+ * Archived habits are excluded — they are no longer the user's responsibility.
+ */
+export function habitRatesOverDays(
+  habits: Habit[],
+  completions: CompletionMap,
+  dateKeys: string[],
+): HabitRate[] {
+  const out: HabitRate[] = habits.filter((h) => !h.archived).map((habit) => {
+    let scheduled = 0;
+    let completed = 0;
+    for (const dateKey of dateKeys) {
+      if (!isScheduledOn(habit, dateKey)) continue;
+      scheduled += 1;
+      if (isCompletedOn(habit, completions, dateKey)) completed += 1;
+    }
+    return { habit, scheduled, completed, rate: scheduled > 0 ? completed / scheduled : 0 };
+  });
+  return out.sort(
+    (a, b) => b.rate - a.rate || b.completed - a.completed || a.habit.title.localeCompare(b.habit.title),
+  );
+}
+
+/** Every day of `month` (0-indexed) with its rate, oldest first. */
+export function monthReport(
+  habits: Habit[],
+  completions: CompletionMap,
+  year: number,
+  month: number,
+  todayKey: string,
+): DateRate[] {
+  const total = daysInMonth(year, month);
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  const cells: DateRate[] = [];
+  for (let day = 1; day <= total; day += 1) {
+    const dateKey = `${prefix}${String(day).padStart(2, '0')}`;
+    cells.push({ dateKey, ...rateOn(habits, completions, dateKey, todayKey) });
+  }
+  return cells;
+}
+
+export interface MonthlySummary {
+  /** Month name, e.g. 'October' — rendered as a section header. */
+  label: string;
+  scheduled: number;
+  completed: number;
+  rate: number;
+  /** Number of days that were aggregated (days up to today only). */
+  days: number;
+  /** The per-day cells behind the totals. */
+  daily: DateRate[];
+}
+
+/**
+ * Whole-month rollup including the per-day cells behind it.
+ *
+ * Days after `todayKey` are excluded from the per-day list (and therefore
+ * from the totals) so future days can never dilute the month's rate.
+ */
+export function monthlySummary(
+  habits: Habit[],
+  completions: CompletionMap,
+  year: number,
+  month: number,
+  todayKey: string,
+): MonthlySummary {
+  const daily = monthReport(habits, completions, year, month, todayKey).filter(
+    (row) => row.dateKey <= todayKey,
+  );
+  let scheduled = 0;
+  let completed = 0;
+  for (const day of daily) {
+    scheduled += day.scheduled;
+    completed += day.completed;
+  }
+  return {
+    label: monthName(month),
+    scheduled,
+    completed,
+    rate: scheduled > 0 ? completed / scheduled : 0,
+    days: daily.length,
+    daily,
+  };
+}
+
+/**
+ * Total completed habit-days across all recorded history for the given habits.
+ *
+ * Reads completion records directly rather than enumerating dates, so it stays
+ * correct for habits whose window would otherwise be unbounded. Records for
+ * habits outside `habits` (e.g. deleted ones) are ignored.
+ */
+export function totalHabitDays(habits: Habit[], completions: CompletionMap): number {
+  const targets = new Map(habits.map((h) => [h.id, h.target ?? 1]));
+  let total = 0;
+  for (const byDate of Object.values(completions ?? {})) {
+    for (const [habitId, entry] of Object.entries(byDate ?? {})) {
+      const target = targets.get(habitId);
+      if (target === undefined) continue;
+      if ((entry?.count ?? 0) >= target) total += 1;
+    }
+  }
+  return total;
 }

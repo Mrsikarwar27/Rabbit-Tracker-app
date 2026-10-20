@@ -1,29 +1,37 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Habit, CompletionMap, WeekStart } from '@/lib/types';
-import type { ThemeTokens } from '@/lib/theme';
 import { isCompletedOn, isScheduledOn } from '@/lib/streaks';
-import { localDateKey, parseDateKey, startOfWeekKey, shiftDateKey, weekdayShort } from '@/lib/dates';
+import { parseDateKey, startOfWeekKey, shiftDateKey, weekdayShort } from '@/lib/dates';
+import { useTheme } from '@/hooks/useHabitStore';
 
-type Props = {
+/**
+ * Seven-day strip.
+ *
+ * Each cell shows the completion level of that day; the selected day gets the
+ * accent border. The strip is tappable so the dashboard can follow a day.
+ */
+export function WeekStrip({
+  habits,
+  completions,
+  weekStart,
+  todayKey,
+  selectedKey,
+  onSelect,
+}: {
   habits: Habit[];
   completions: CompletionMap;
   weekStart: WeekStart;
   todayKey: string;
-  tokens: ThemeTokens;
-};
-
-/**
- * Weekly overview: 7 mini-bars for the current (whole) week.
- * Each bar shows scheduled-vs-completed rate; today's bar has an accent border.
- * Future scheduled days show a neutral "scheduled" bar — never "missed".
- */
-export function WeekStrip({ habits, completions, weekStart, todayKey, tokens }: Props) {
+  selectedKey?: string;
+  onSelect?: (dateKey: string) => void;
+}) {
+  const { tokens } = useTheme();
   const start = startOfWeekKey(todayKey, weekStart);
   const days = Array.from({ length: 7 }, (_, i) => shiftDateKey(start, i));
 
   return (
-    <View style={{ flexDirection: 'row', gap: 6 }}>
+    <View style={styles.row}>
       {days.map((dateKey) => {
         const weekday = parseDateKey(dateKey).getDay();
         const scheduled = habits.filter((h) => isScheduledOn(h, dateKey));
@@ -31,44 +39,82 @@ export function WeekStrip({ habits, completions, weekStart, todayKey, tokens }: 
         const rate = scheduled.length ? done.length / scheduled.length : 0;
         const isFuture = dateKey > todayKey;
         const isToday = dateKey === todayKey;
+        const isSelected = dateKey === selectedKey;
         const full = scheduled.length > 0 && !isFuture && done.length === scheduled.length;
 
         return (
-          <View key={dateKey} style={{ alignItems: 'center', flex: 1 }}>
+          <Pressable
+            key={dateKey}
+            onPress={onSelect ? () => onSelect(dateKey) : undefined}
+            disabled={!onSelect}
+            accessibilityRole="button"
+            accessibilityLabel={weekdayShort(weekday)}
+            accessibilityState={{ selected: isSelected }}
+            style={styles.cell}
+          >
             <View
-              style={{
-                height: 44,
-                width: '100%',
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: isToday ? tokens.accent : tokens.border,
-                backgroundColor: tokens.card,
-                overflow: 'hidden',
-                justifyContent: 'flex-end',
-              }}
+              style={[
+                styles.track,
+                {
+                  backgroundColor: tokens.surface,
+                  borderColor: isSelected || isToday ? tokens.primary : tokens.border,
+                  borderWidth: isSelected || isToday ? 1.5 : StyleSheet.hairlineWidth * 2,
+                },
+              ]}
             >
               <View
-                style={{
-                  height: `${Math.round(rate * 100)}%` as `${number}%`,
-                  backgroundColor: full ? tokens.accent : tokens.muted,
-                  opacity: isFuture ? 0.25 : 1,
-                }}
+                style={[
+                  styles.fill,
+                  {
+                    height: `${Math.round(rate * 100)}%` as `${number}%`,
+                    backgroundColor: full ? tokens.primary : rate > 0 ? tokens.secondary : 'transparent',
+                    opacity: isFuture ? 0.35 : 1,
+                  },
+                ]}
               />
             </View>
             <Text
-              style={{
-                color: isToday ? tokens.accent : tokens.sub,
-                fontSize: 10,
-                marginTop: 6,
-                fontWeight: isToday ? '700' : '400',
-              }}
+              style={[
+                styles.day,
+                {
+                  color: isSelected || isToday ? tokens.primary : tokens.textSecondary,
+                  fontWeight: isSelected || isToday ? '800' : '500',
+                },
+              ]}
             >
-              {weekdayShort(weekday)}
+              {weekdayShort(weekday).slice(0, 1)}
             </Text>
-          </View>
+          </Pressable>
         );
       })}
-      {weekStart === 'mon' ? null : null}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cell: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  track: {
+    height: 44,
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+    justifyContent: 'flex-end',
+  },
+  fill: {
+    width: '100%',
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+  },
+  day: {
+    fontSize: 11,
+    marginTop: 6,
+    letterSpacing: 0.3,
+  },
+});

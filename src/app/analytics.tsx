@@ -7,9 +7,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useHabitStore } from '@/hooks/useHabitStore';
+import { useHabitStore, useTheme } from '@/hooks/useHabitStore';
 import { useToday } from '@/hooks/useToday';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { Card, ProgressBar, SectionLabel } from '@/components/ui';
 import {
   dayRates,
   habitRatesOverDays,
@@ -21,7 +22,8 @@ import { lastNDays, parseDateKey, weekdayShort } from '@/lib/dates';
 import { currentStreak, longestStreak } from '@/lib/streaks';
 
 export default function Analytics() {
-  const { tokens, activeHabits, habits, completions } = useHabitStore();
+  const { activeHabits, habits, completions } = useHabitStore();
+  const { tokens } = useTheme();
   const todayKey = useToday();
   const insets = useSafeAreaInsets();
 
@@ -66,109 +68,207 @@ export default function Analytics() {
   );
   const totalDays = useMemo(() => totalHabitDays(habits, completions), [habits, completions]);
 
+  const stats = [
+    { value: `${Math.round(today.rate * 100)}%`, label: 'Today', accent: true },
+    { value: `🔥 ${maxCurrent}`, label: 'Current streak', accent: false },
+    { value: `${maxLongest}`, label: 'Longest streak', accent: false },
+    { value: `${totalDays}`, label: 'Habit-days done', accent: false },
+  ];
+
   return (
-    <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <StatusBar barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={tokens.bg} />
-      <ScreenHeader title="Analytics" subtitle="Computed from your real history" tokens={tokens} showBack />
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 30 }} keyboardShouldPersistTaps="handled">
+    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
+      <StatusBar
+        barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={tokens.background}
+      />
+      <ScreenHeader title="Insights" subtitle="Computed from your real history" showBack />
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 30 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Stats grid */}
         <View style={styles.statGrid}>
-          <View style={[styles.statCard, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-            <Text style={[styles.statValue, { color: tokens.accent }]}>{Math.round(today.rate * 100)}%</Text>
-            <Text style={[styles.statLabel, { color: tokens.sub }]}>Today</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-            <Text style={[styles.statValue, { color: tokens.accent }]}>🔥 {maxCurrent}</Text>
-            <Text style={[styles.statLabel, { color: tokens.sub }]}>Current streak</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-            <Text style={[styles.statValue, { color: tokens.text }]}>{maxLongest}</Text>
-            <Text style={[styles.statLabel, { color: tokens.sub }]}>Longest streak</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-            <Text style={[styles.statValue, { color: tokens.text }]}>{totalDays}</Text>
-            <Text style={[styles.statLabel, { color: tokens.sub }]}>Habit-days done</Text>
-          </View>
+          {stats.map((s) => (
+            <Card key={s.label} style={styles.statCard}>
+              <Text style={[styles.statValue, { color: s.accent ? tokens.primary : tokens.textPrimary }]}>
+                {s.value}
+              </Text>
+              <Text style={[styles.statLabel, { color: tokens.textSecondary }]}>{s.label}</Text>
+            </Card>
+          ))}
         </View>
 
-        <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>LAST 14 DAYS</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 4, height: 90, marginTop: 14 }}>
+        {/* Trend chart */}
+        <Card style={styles.card}>
+          <SectionLabel>LAST 14 DAYS</SectionLabel>
+          <View style={styles.chart}>
             {trend.map((d) => (
-              <View key={d.dateKey} style={{ flex: 1, alignItems: 'center' }}>
-                <View style={{ height: 66, width: '100%', justifyContent: 'flex-end' }}>
+              <View key={d.dateKey} style={styles.chartColumn}>
+                <View style={styles.chartTrack}>
                   <View
-                    style={{
-                      height: `${Math.round(d.rate * 100)}%` as `${number}%`,
-                      backgroundColor: d.rate >= 1 ? tokens.accent : tokens.muted,
-                      borderRadius: 4,
-                      minHeight: d.scheduled ? 2 : 0,
-                      opacity: d.scheduled ? 1 : 0.2,
-                    }}
+                    style={[
+                      styles.chartBar,
+                      {
+                        height: `${Math.round(d.rate * 100)}%` as `${number}%`,
+                        backgroundColor: d.rate >= 1 ? tokens.primary : tokens.surfaceContainer,
+                        opacity: d.scheduled ? 1 : 0.25,
+                      },
+                    ]}
                   />
                 </View>
-                <Text style={{ color: tokens.muted, fontSize: 8, marginTop: 4 }}>
+                <Text style={[styles.chartLabel, { color: tokens.textTertiary }]}>
                   {weekdayShort(parseDateKey(d.dateKey).getDay()).slice(0, 1)}
                 </Text>
               </View>
             ))}
           </View>
-        </View>
+        </Card>
 
-        <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>
-            {month.label.toUpperCase()}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', marginTop: 10 }}>
-            <Text style={{ color: tokens.text, fontSize: 24, fontWeight: '800' }}>
+        {/* Month summary */}
+        <Card style={styles.card}>
+          <SectionLabel>{month.label.toUpperCase()}</SectionLabel>
+          <View style={styles.monthRow}>
+            <Text style={[styles.monthValue, { color: tokens.textPrimary }]}>
               {Math.round(month.rate * 100)}%
             </Text>
-            <Text style={{ color: tokens.sub, fontSize: 13, marginLeft: 10, marginBottom: 3 }}>
+            <Text style={[styles.monthCaption, { color: tokens.textSecondary }]}>
               {month.completed} / {month.scheduled} scheduled
             </Text>
           </View>
-        </View>
+          <ProgressBar value={month.rate} style={styles.monthBar} />
+        </Card>
 
-        <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-          <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>BEST HABITS (30 DAYS)</Text>
+        {/* Best habits */}
+        <Card style={styles.card}>
+          <SectionLabel>BEST HABITS (30 DAYS)</SectionLabel>
           {best.length === 0 || best.every((b) => b.scheduled === 0) ? (
-            <Text style={{ color: tokens.muted, fontSize: 13, marginTop: 10 }}>
+            <Text style={[styles.empty, { color: tokens.textTertiary }]}>
               Nothing scheduled in the last 30 days yet.
             </Text>
           ) : (
             best.map(({ habit, scheduled, completed, rate }) => (
               <View key={habit.id} style={[styles.bestRow, { borderTopColor: tokens.border }]}>
-                <Text style={{ fontSize: 15, marginRight: 8 }}>{habit.emoji}</Text>
-                <Text numberOfLines={1} style={{ color: tokens.text, fontSize: 14, fontWeight: '600', flex: 1, marginRight: 8 }}>
+                <Text style={styles.bestEmoji}>{habit.emoji}</Text>
+                <Text
+                  numberOfLines={1}
+                  style={[styles.bestName, { color: tokens.textPrimary }]}
+                >
                   {habit.title}
                 </Text>
-                <View style={{ width: 70, height: 7, borderRadius: 4, backgroundColor: tokens.border, overflow: 'hidden', marginRight: 8 }}>
-                  <View
-                    style={{
-                      height: '100%',
-                      backgroundColor: habit.color,
-                      width: `${Math.round(rate * 100)}%` as `${number}%`,
-                    }}
-                  />
+                <View style={styles.bestBar}>
+                  <ProgressBar value={rate} height={7} color={habit.color} />
                 </View>
-                <Text style={{ color: tokens.sub, fontSize: 11, width: 56, textAlign: 'right' }}>
+                <Text style={[styles.bestCount, { color: tokens.textSecondary }]}>
                   {completed}/{scheduled}
                 </Text>
               </View>
             ))
           )}
-        </View>
-
-        <View style={{ height: 20 }} />
+        </Card>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
-  statCard: { flexBasis: '48%', flexGrow: 1, borderRadius: 16, borderWidth: 1, padding: 16 },
-  statValue: { fontSize: 24, fontWeight: '800' },
-  statLabel: { fontSize: 11, marginTop: 4, fontWeight: '600' },
-  card: { borderRadius: 20, borderWidth: 1, padding: 16, marginTop: 14 },
-  bestRow: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, paddingVertical: 10, minHeight: 44 },
+  screen: {
+    flex: 1,
+  },
+  statGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 14,
+  },
+  statCard: {
+    flexBasis: '47%',
+    flexGrow: 1,
+    padding: 15,
+  },
+  statValue: {
+    fontSize: 23,
+    fontWeight: '800',
+  },
+  statLabel: {
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  card: {
+    marginTop: 14,
+  },
+  chart: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 4,
+    height: 96,
+    marginTop: 14,
+  },
+  chartColumn: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  chartTrack: {
+    height: 70,
+    width: '100%',
+    justifyContent: 'flex-end',
+  },
+  chartBar: {
+    width: '100%',
+    borderRadius: 4,
+    minHeight: 2,
+  },
+  chartLabel: {
+    fontSize: 8,
+    marginTop: 5,
+  },
+  monthRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: 10,
+  },
+  monthValue: {
+    fontSize: 26,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  monthCaption: {
+    fontSize: 13,
+    marginLeft: 10,
+    marginBottom: 3,
+  },
+  monthBar: {
+    marginTop: 12,
+  },
+  empty: {
+    fontSize: 13,
+    marginTop: 10,
+  },
+  bestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth * 2,
+    paddingVertical: 11,
+    minHeight: 48,
+  },
+  bestEmoji: {
+    fontSize: 15,
+    marginRight: 8,
+  },
+  bestName: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 8,
+  },
+  bestBar: {
+    width: 68,
+    marginRight: 8,
+  },
+  bestCount: {
+    fontSize: 11,
+    width: 54,
+    textAlign: 'right',
+  },
 });

@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ACCENT_COLORS,
+  DEFAULT_APPEARANCE,
   DEFAULT_SETTINGS,
   defaultAppData,
+  type AppearancePreferences,
   type AppData,
   type CompletionEntry,
   type Completions,
@@ -12,6 +14,7 @@ import {
   type Settings,
 } from './types';
 import { isDateKey, todayKey } from './date';
+import { normalizeHex, CORNER_RADIUS_RANGE } from './theme';
 
 /**
  * Single-key, versioned persistence. All AsyncStorage knowledge stays here.
@@ -67,10 +70,9 @@ function sanitizeHabit(input: unknown): Habit | null {
     (VALID_CATEGORIES as string[]).includes(input.category)
       ? (input.category as HabitCategoryKey)
       : 'personal';
-  const color =
-    typeof input.color === 'string' && (ACCENT_COLORS as readonly string[]).includes(input.color)
-      ? input.color
-      : ACCENT_COLORS[0];
+  // Habit colours are user data: accept any valid hex so custom picks survive
+  // a restart, and fall back to the first swatch when the value is broken.
+  const color = normalizeHex(typeof input.color === 'string' ? input.color : '') ?? ACCENT_COLORS[0];
   const targetNum =
     typeof input.target === 'number' && Number.isFinite(input.target) && input.target >= 1
       ? Math.min(Math.floor(input.target), 50)
@@ -126,8 +128,9 @@ function sanitizeCompletions(input: unknown): Completions {
       if (count <= 0) continue; // ghost/zero entries are dropped
       const clean: CompletionEntry = {
         count,
-        updatedAt:
+        updatedAt: String(
           typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
+        ),
       };
       (out[habitId] ??= {})[date] = clean;
     }
@@ -136,14 +139,30 @@ function sanitizeCompletions(input: unknown): Completions {
 }
 
 function sanitizeSettings(input: unknown): Settings {
-  const base: Settings = { ...DEFAULT_SETTINGS };
+  const base: Settings = { ...DEFAULT_SETTINGS, appearance: { ...DEFAULT_APPEARANCE } };
   if (!isPlainObject(input)) return base;
   if (input.theme === 'dark' || input.theme === 'light' || input.theme === 'system') {
     base.theme = input.theme;
   }
-  if (input.weekStart === 0 || input.weekStart === 1) base.weekStart = input.weekStart;
+  if (input.weekStart === 'sun' || input.weekStart === 'mon') base.weekStart = input.weekStart;
   if (typeof input.notificationsEnabled === 'boolean') {
     base.notificationsEnabled = input.notificationsEnabled;
+  }
+  if (isPlainObject(input.appearance)) {
+    const a = input.appearance;
+    const accent = normalizeHex(typeof a.accent === 'string' ? a.accent : '');
+    if (accent) base.appearance.accent = accent;
+    if (a.cardStyle === 'standard' || a.cardStyle === 'rounded' || a.cardStyle === 'minimal') {
+      base.appearance.cardStyle = a.cardStyle;
+    }
+    if (a.density === 'compact' || a.density === 'comfortable') base.appearance.density = a.density;
+    if (typeof a.reducedMotion === 'boolean') base.appearance.reducedMotion = a.reducedMotion;
+    if (typeof a.cornerRadius === 'number' && Number.isFinite(a.cornerRadius)) {
+      base.appearance.cornerRadius = Math.max(
+        CORNER_RADIUS_RANGE.min,
+        Math.min(CORNER_RADIUS_RANGE.max, Math.round(a.cornerRadius)),
+      );
+    }
   }
   return base;
 }
@@ -265,4 +284,200 @@ export function flushSave(): Promise<void> {
 export async function clearStoredData(): Promise<void> {
   scheduleSave(defaultAppData());
   await flushSave();
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Store-facing adapter.
+ *
+ * `useHabitStore` reads/writes a slightly different document shape than the
+ * legacy API above, so these map between the two at the boundary:
+ *   • completions are keyed by LOCAL DATE key, then habit id (the legacy
+ *     sanitizer keys them habit-first, which would silently transpose data);
+ *   • reminders are stored under `reminders`, not `notificationIds`;
+ *   • weekStart is a 'sun' | 'mon' string rather than a 0/1 index.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const ADAPTER_KEY = 'habit-tracker/data/v1';
+
+export interface StoreSettings {
+  theme: 'dark' | 'light' | 'system';
+  weekStart: 'sun' | 'mon';
+  notificationsEnabled: boolean;
+  appearance: AppearancePreferences;
+}
+
+/**
+ * Store-facing completion record. `updatedAt` is an ISO string here (the store
+ * writes `new Date().toISOString()`), unlike the legacy numeric bookkeeping
+ * timestamp on the `CompletionEntry` above.
+ */
+export interface StoreCompletionEntry {
+  count: number;
+  updatedAt: string;
+}
+
+export type StoreCompletionMap = Record<string, Record<string, StoreCompletionEntry>>;
+
+export interface StoreData {
+  habits: Habit[];
+  completions: StoreCompletionMap;
+  reminders: Record<string, string[]>;
+  settings: StoreSettings;
+}
+
+const DEFAULT_STORE_SETTINGS: StoreSettings = {
+  theme: 'dark',
+  weekStart: 'sun',
+  notificationsEnabled: true,
+  appearance: { ...DEFAULT_APPEARANCE },
+};
+
+/** Accept both the legacy 0/1 index and the current 'sun' | 'mon' string. */
+function toWeekStart(value: unknown): 'sun' | 'mon' {
+  if (value === 'sun' || value === 'mon') return value;
+  if (value === 0) return 'sun';
+  if (value === 1) return 'mon';
+  return 'sun';
+}
+
+function toTheme(value: unknown): 'dark' | 'light' | 'system' {
+  return value === 'light' || value === 'system' ? value : 'dark';
+}
+
+/** Sanitize the persisted appearance block; unknown values fall back. */
+function toAppearance(value: unknown): AppearancePreferences {
+  const out: AppearancePreferences = { ...DEFAULT_APPEARANCE };
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return out;
+  const raw = value as Record<string, unknown>;
+  const accent = normalizeHex(typeof raw.accent === 'string' ? raw.accent : '');
+  if (accent) out.accent = accent;
+  if (raw.cardStyle === 'standard' || raw.cardStyle === 'rounded' || raw.cardStyle === 'minimal') {
+    out.cardStyle = raw.cardStyle;
+  }
+  if (raw.density === 'compact' || raw.density === 'comfortable') out.density = raw.density;
+  if (typeof raw.reducedMotion === 'boolean') out.reducedMotion = raw.reducedMotion;
+  if (typeof raw.cornerRadius === 'number' && Number.isFinite(raw.cornerRadius)) {
+    out.cornerRadius = Math.max(
+      CORNER_RADIUS_RANGE.min,
+      Math.min(CORNER_RADIUS_RANGE.max, Math.round(raw.cornerRadius)),
+    );
+  }
+  return out;
+}
+
+function toReminders(value: unknown): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return out;
+  for (const [habitId, ids] of Object.entries(value as Record<string, unknown>)) {
+    if (Array.isArray(ids)) out[habitId] = ids.filter((id): id is string => typeof id === 'string');
+  }
+  return out;
+}
+
+/**
+ * Date-keyed completion map. Entries are kept even at count 0 — the store uses
+ * them to tell "explicitly unchecked" apart from "never touched".
+ */
+function toCompletions(value: unknown): StoreCompletionMap {
+  const out: StoreCompletionMap = {};
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return out;
+  for (const [dateKey, byHabit] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof byHabit !== 'object' || byHabit === null || Array.isArray(byHabit)) continue;
+    const day: Record<string, StoreCompletionEntry> = {};
+    for (const [habitId, entry] of Object.entries(byHabit as Record<string, unknown>)) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const { count } = entry as { count?: unknown };
+      const numeric = typeof count === 'number' && Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+      day[habitId] = {
+        count: numeric,
+        updatedAt:
+          typeof (entry as { updatedAt?: unknown }).updatedAt === 'string'
+            ? (entry as { updatedAt: string }).updatedAt
+            : new Date().toISOString(),
+      };
+    }
+    out[dateKey] = day;
+  }
+  return out;
+}
+
+function toHabits(value: unknown): Habit[] {
+  if (!Array.isArray(value)) return [];
+  const out: Habit[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const habit = raw as Partial<Habit> & { id?: unknown };
+    if (typeof habit.id !== 'string' || habit.id.length === 0 || seen.has(habit.id)) continue;
+    seen.add(habit.id);
+    out.push(habit as Habit);
+  }
+  return out;
+}
+
+/**
+ * Load persisted data for the habit store.
+ *
+ * Never throws: unreadable or malformed blobs resolve to defaults so a bad
+ * write can't brick the app on launch.
+ */
+export async function loadData(): Promise<StoreData> {
+  let raw: string | null = null;
+  try {
+    raw = await AsyncStorage.getItem(ADAPTER_KEY);
+  } catch {
+    return { habits: [], completions: {}, reminders: {}, settings: { ...DEFAULT_STORE_SETTINGS } };
+  }
+  if (raw === null) {
+    return { habits: [], completions: {}, reminders: {}, settings: { ...DEFAULT_STORE_SETTINGS } };
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) throw new Error('not an object');
+    const doc = parsed as Record<string, unknown>;
+    const rawSettings = (typeof doc.settings === 'object' && doc.settings !== null ? doc.settings : {}) as Record<string, unknown>;
+    return {
+      habits: toHabits(doc.habits),
+      completions: toCompletions(doc.completions),
+      reminders: toReminders(doc.reminders),
+      settings: {
+        theme: toTheme(rawSettings.theme),
+        weekStart: toWeekStart(rawSettings.weekStart),
+        notificationsEnabled: rawSettings.notificationsEnabled !== false,
+        appearance: toAppearance(rawSettings.appearance),
+      },
+    };
+  } catch {
+    return { habits: [], completions: {}, reminders: {}, settings: { ...DEFAULT_STORE_SETTINGS } };
+  }
+}
+
+/**
+ * Persist a store snapshot. Serialized through the shared write chain so rapid
+ * toggles can never interleave or land out of order.
+ */
+export async function saveData(data: StoreData): Promise<void> {
+  const payload = JSON.stringify({
+    version: 1,
+    habits: data.habits,
+    completions: data.completions,
+    reminders: data.reminders,
+    settings: data.settings,
+    updatedAt: new Date().toISOString(),
+  });
+  chain = chain
+    .then(() => AsyncStorage.setItem(ADAPTER_KEY, payload))
+    .catch((err) => {
+      console.warn('[storage] persist failed', err);
+    });
+  await chain;
+}
+
+/** Remove the stored document (user-initiated). */
+export async function clearData(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(ADAPTER_KEY);
+  } catch (err) {
+    console.warn('[storage] clear failed', err);
+  }
 }

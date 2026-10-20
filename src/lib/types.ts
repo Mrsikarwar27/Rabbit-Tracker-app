@@ -39,17 +39,18 @@ export type HabitFrequency =
   | { type: 'daily' }
   | { type: 'weekdays'; days: Weekday[] };
 
-/** Reminder time in local 24-hour notation. */
+/** Reminder time in local 24-hour notation, or legacy hour/minute. */
 export interface HabitReminder {
-  hour: number; // 0–23
-  minute: number; // 0–59
+  time?: string; // HH:MM format preferred
+  hour?: number;
+  minute?: number;
 }
 
 export interface Habit {
   /** Stable opaque id. Never use an array index as an id. */
   id: string;
   title: string;
-  description: string;
+  description?: string; // optional
   category: HabitCategoryKey;
   emoji: string;
   /** Accent color as hex (one of ACCENT_COLORS). */
@@ -64,6 +65,8 @@ export interface Habit {
   reminder: HabitReminder | null;
   /** Local YYYY-MM-DD on which the habit was created. */
   createdAt: string;
+  /** Derived local date key (optional, for streak calculations). */
+  createdAtKey?: string;
   archived: boolean;
   /** Local YYYY-MM-DD when archived (streaks freeze afterward). */
   archivedAt?: string;
@@ -75,23 +78,46 @@ export interface Habit {
  * Multiple records for the same (habit, date) are impossible by construction
  * (it is a keyed map, never an array).
  */
-export type CompletionEntry = { count: number; updatedAt: number };
+export type CompletionEntry = { count: number; updatedAt: string };
 export type Completions = Record<string, Record<string, CompletionEntry>>;
 
 export type ThemePreference = 'dark' | 'light' | 'system';
 
+export type CardStyle = 'standard' | 'rounded' | 'minimal';
+export type ListDensity = 'compact' | 'comfortable';
+
+export interface AppearancePreferences {
+  accent: string;
+  cardStyle: CardStyle;
+  density: ListDensity;
+  reducedMotion: boolean;
+  /** Corner radius for cards, in dp. */
+  cornerRadius: number;
+}
+
 export interface Settings {
   theme: ThemePreference;
-  /** 0 = Sunday, 1 = Monday */
-  weekStart: Weekday;
+  /** 'sun' = Sunday, 'mon' = Monday */
+  weekStart: WeekStart;
   /** Master switch for habit reminders. */
   notificationsEnabled: boolean;
+  /** Appearance customizations. */
+  appearance: AppearancePreferences;
 }
+
+export const DEFAULT_APPEARANCE: AppearancePreferences = {
+  accent: '#A6F36A',
+  cardStyle: 'standard',
+  density: 'comfortable',
+  reducedMotion: false,
+  cornerRadius: 20,
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
-  weekStart: 1,
+  weekStart: 'mon',
   notificationsEnabled: true,
+  appearance: { ...DEFAULT_APPEARANCE },
 };
 
 /** Persisted in one versioned document under a single AsyncStorage key. */
@@ -132,3 +158,48 @@ export const HABIT_EMOJIS = [
   '🌙', '☀️', '⚡', '🎯', '💰', '🧹', '🛏️', '📵', '📷', '🌱',
   '🚴', '🏊', '🍎', '🥛', '💊', '🪥', '📝', '💻', '🎨', '🙏',
 ] as const;
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Additive API used by the habit screens/hooks (useHabitStore + src/app/*).
+ * Kept alongside the legacy key-based model above so both can coexist.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Display-name category, rendered directly as its own label in the habit form. */
+export type Category = HabitCategoryKey;
+
+export const CATEGORIES: readonly Category[] = [
+  'health',
+  'fitness',
+  'learning',
+  'productivity',
+  'personal',
+];
+
+export function isCategory(value: unknown): value is Category {
+  return typeof value === 'string' && (CATEGORIES as readonly string[]).includes(value);
+}
+
+/** First day of the week, as a preference string (not a 0/1 index). */
+export type WeekStart = 'sun' | 'mon';
+
+/**
+ * Completion records keyed by LOCAL date key, then habit id — exactly one record
+ * per (habit, date); unchecking rewrites that record with count 0.
+ */
+export type CompletionMap = Record<string, Record<string, CompletionEntry>>;
+
+export type NotificationStatus = 'granted' | 'denied' | 'undetermined' | 'unknown';
+
+/** Form-shaped payload produced by the habit form and applied by the store. */
+export interface HabitInput {
+  title: string;
+  description: string;
+  category: Category;
+  emoji: string;
+  color: string;
+  frequencyType: 'daily' | 'weekdays';
+  weekdays: number[];
+  target: number;
+  /** Local 24h 'HH:MM', or '' for no reminder. */
+  reminderTime: string;
+}
