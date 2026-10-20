@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -199,9 +200,18 @@ export default function Settings() {
           />
         </Card>
 
-        <Text style={[styles.footer, { color: tokens.textTertiary }]}>
-          HabitTracker · runs fully offline
-        </Text>
+        <View style={styles.footerWrap}>
+          <Image
+            source={require('../../assets/images/rabbit-logo.png')}
+            style={styles.footerLogo}
+          />
+          <Text style={[styles.footerTitle, { color: tokens.textPrimary }]}>
+            Rabbit Tracker
+          </Text>
+          <Text style={[styles.footer, { color: tokens.textTertiary }]}>
+            v1.0.0 · runs fully offline
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -277,9 +287,24 @@ const styles = StyleSheet.create({
   action: {
     marginTop: 12,
   },
+  footerWrap: {
+    alignItems: 'center',
+    marginTop: 28,
+    marginBottom: 16,
+  },
+  footerLogo: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    marginBottom: 8,
+  },
+  footerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
   footer: {
     fontSize: 11,
     textAlign: 'center',
-    marginTop: 26,
+    marginTop: 4,
   },
 });

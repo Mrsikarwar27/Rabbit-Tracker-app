@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Image,
   Pressable,
   ScrollView,
   StatusBar,
@@ -137,12 +138,18 @@ export default function Index() {
       >
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <View style={styles.header}>
-          <View style={styles.brandBlock}>
-            <Text style={[styles.brand, { color: tokens.primary }]}>RABBIT TRACKER</Text>
-            <Text style={[styles.greeting, { color: tokens.textPrimary }]}>
-              {greeting(new Date().getHours())}.
-            </Text>
-            <Text style={[styles.dateLine, { color: tokens.textSecondary }]}>{dayLabel}</Text>
+          <View style={styles.brandRow}>
+            <Image
+              source={require('../../assets/images/rabbit-logo.png')}
+              style={styles.logoImage}
+            />
+            <View style={styles.brandBlock}>
+              <Text style={[styles.brand, { color: tokens.primary }]}>RABBIT TRACKER</Text>
+              <Text style={[styles.greeting, { color: tokens.textPrimary }]}>
+                {greeting(new Date().getHours())}.
+              </Text>
+              <Text style={[styles.dateLine, { color: tokens.textSecondary }]}>{dayLabel}</Text>
+            </View>
           </View>
           <View style={styles.headerActions}>
             <Pressable
@@ -343,6 +350,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+  },
+  brandRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  logoImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    marginRight: 12,
   },
   brandBlock: {
     flex: 1,
