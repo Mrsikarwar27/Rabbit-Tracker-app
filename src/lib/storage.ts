@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   ACCENT_COLORS,
+  DEFAULT_APPEARANCE,
   DEFAULT_SETTINGS,
   defaultAppData,
+  type AppearancePreferences,
   type AppData,
   type CompletionEntry,
   type Completions,
@@ -12,6 +14,7 @@ import {
   type Settings,
 } from './types';
 import { isDateKey, todayKey } from './date';
+import { normalizeHex, CORNER_RADIUS_RANGE } from './theme';
 
 /**
  * Single-key, versioned persistence. All AsyncStorage knowledge stays here.
@@ -67,10 +70,9 @@ function sanitizeHabit(input: unknown): Habit | null {
     (VALID_CATEGORIES as string[]).includes(input.category)
       ? (input.category as HabitCategoryKey)
       : 'personal';
-  const color =
-    typeof input.color === 'string' && (ACCENT_COLORS as readonly string[]).includes(input.color)
-      ? input.color
-      : ACCENT_COLORS[0];
+  // Habit colours are user data: accept any valid hex so custom picks survive
+  // a restart, and fall back to the first swatch when the value is broken.
+  const color = normalizeHex(typeof input.color === 'string' ? input.color : '') ?? ACCENT_COLORS[0];
   const targetNum =
     typeof input.target === 'number' && Number.isFinite(input.target) && input.target >= 1
       ? Math.min(Math.floor(input.target), 50)
@@ -126,8 +128,9 @@ function sanitizeCompletions(input: unknown): Completions {
       if (count <= 0) continue; // ghost/zero entries are dropped
       const clean: CompletionEntry = {
         count,
-        updatedAt:
+        updatedAt: String(
           typeof entry.updatedAt === 'number' ? entry.updatedAt : Date.now(),
+        ),
       };
       (out[habitId] ??= {})[date] = clean;
     }
@@ -136,14 +139,30 @@ function sanitizeCompletions(input: unknown): Completions {
 }
 
 function sanitizeSettings(input: unknown): Settings {
-  const base: Settings = { ...DEFAULT_SETTINGS };
+  const base: Settings = { ...DEFAULT_SETTINGS, appearance: { ...DEFAULT_APPEARANCE } };
   if (!isPlainObject(input)) return base;
   if (input.theme === 'dark' || input.theme === 'light' || input.theme === 'system') {
     base.theme = input.theme;
   }
-  if (input.weekStart === 0 || input.weekStart === 1) base.weekStart = input.weekStart;
+  if (input.weekStart === 'sun' || input.weekStart === 'mon') base.weekStart = input.weekStart;
   if (typeof input.notificationsEnabled === 'boolean') {
     base.notificationsEnabled = input.notificationsEnabled;
+  }
+  if (isPlainObject(input.appearance)) {
+    const a = input.appearance;
+    const accent = normalizeHex(typeof a.accent === 'string' ? a.accent : '');
+    if (accent) base.appearance.accent = accent;
+    if (a.cardStyle === 'standard' || a.cardStyle === 'rounded' || a.cardStyle === 'minimal') {
+      base.appearance.cardStyle = a.cardStyle;
+    }
+    if (a.density === 'compact' || a.density === 'comfortable') base.appearance.density = a.density;
+    if (typeof a.reducedMotion === 'boolean') base.appearance.reducedMotion = a.reducedMotion;
+    if (typeof a.cornerRadius === 'number' && Number.isFinite(a.cornerRadius)) {
+      base.appearance.cornerRadius = Math.max(
+        CORNER_RADIUS_RANGE.min,
+        Math.min(CORNER_RADIUS_RANGE.max, Math.round(a.cornerRadius)),
+      );
+    }
   }
   return base;
 }
@@ -284,6 +303,7 @@ export interface StoreSettings {
   theme: 'dark' | 'light' | 'system';
   weekStart: 'sun' | 'mon';
   notificationsEnabled: boolean;
+  appearance: AppearancePreferences;
 }
 
 /**
@@ -309,6 +329,7 @@ const DEFAULT_STORE_SETTINGS: StoreSettings = {
   theme: 'dark',
   weekStart: 'sun',
   notificationsEnabled: true,
+  appearance: { ...DEFAULT_APPEARANCE },
 };
 
 /** Accept both the legacy 0/1 index and the current 'sun' | 'mon' string. */
@@ -321,6 +342,27 @@ function toWeekStart(value: unknown): 'sun' | 'mon' {
 
 function toTheme(value: unknown): 'dark' | 'light' | 'system' {
   return value === 'light' || value === 'system' ? value : 'dark';
+}
+
+/** Sanitize the persisted appearance block; unknown values fall back. */
+function toAppearance(value: unknown): AppearancePreferences {
+  const out: AppearancePreferences = { ...DEFAULT_APPEARANCE };
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return out;
+  const raw = value as Record<string, unknown>;
+  const accent = normalizeHex(typeof raw.accent === 'string' ? raw.accent : '');
+  if (accent) out.accent = accent;
+  if (raw.cardStyle === 'standard' || raw.cardStyle === 'rounded' || raw.cardStyle === 'minimal') {
+    out.cardStyle = raw.cardStyle;
+  }
+  if (raw.density === 'compact' || raw.density === 'comfortable') out.density = raw.density;
+  if (typeof raw.reducedMotion === 'boolean') out.reducedMotion = raw.reducedMotion;
+  if (typeof raw.cornerRadius === 'number' && Number.isFinite(raw.cornerRadius)) {
+    out.cornerRadius = Math.max(
+      CORNER_RADIUS_RANGE.min,
+      Math.min(CORNER_RADIUS_RANGE.max, Math.round(raw.cornerRadius)),
+    );
+  }
+  return out;
 }
 
 function toReminders(value: unknown): Record<string, string[]> {
@@ -402,6 +444,7 @@ export async function loadData(): Promise<StoreData> {
         theme: toTheme(rawSettings.theme),
         weekStart: toWeekStart(rawSettings.weekStart),
         notificationsEnabled: rawSettings.notificationsEnabled !== false,
+        appearance: toAppearance(rawSettings.appearance),
       },
     };
   } catch {

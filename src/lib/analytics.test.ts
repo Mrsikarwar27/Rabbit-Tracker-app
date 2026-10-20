@@ -15,6 +15,8 @@ function habit(id: string, overrides: Partial<Habit> = {}): Habit {
     target: 1,
     createdAt: '2025-01-01T00:00:00.000Z',
     archived: false,
+    reminder: null,
+    updatedAt: '2025-01-01T00:00:00.000Z',
     ...overrides,
   };
 }

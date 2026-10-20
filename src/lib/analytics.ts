@@ -288,13 +288,14 @@ export interface HabitRate {
 /**
  * Per-habit performance over an explicit list of date keys, best first.
  * Habits with nothing scheduled in the window sink to the bottom.
+ * Archived habits are excluded — they are no longer the user's responsibility.
  */
 export function habitRatesOverDays(
   habits: Habit[],
   completions: CompletionMap,
   dateKeys: string[],
 ): HabitRate[] {
-  const out: HabitRate[] = habits.map((habit) => {
+  const out: HabitRate[] = habits.filter((h) => !h.archived).map((habit) => {
     let scheduled = 0;
     let completed = 0;
     for (const dateKey of dateKeys) {
@@ -333,10 +334,18 @@ export interface MonthlySummary {
   scheduled: number;
   completed: number;
   rate: number;
-  days: DateRate[];
+  /** Number of days that were aggregated (days up to today only). */
+  days: number;
+  /** The per-day cells behind the totals. */
+  daily: DateRate[];
 }
 
-/** Whole-month rollup including the per-day cells behind it. */
+/**
+ * Whole-month rollup including the per-day cells behind it.
+ *
+ * Days after `todayKey` are excluded from the per-day list (and therefore
+ * from the totals) so future days can never dilute the month's rate.
+ */
 export function monthlySummary(
   habits: Habit[],
   completions: CompletionMap,
@@ -344,10 +353,12 @@ export function monthlySummary(
   month: number,
   todayKey: string,
 ): MonthlySummary {
-  const days = monthReport(habits, completions, year, month, todayKey);
+  const daily = monthReport(habits, completions, year, month, todayKey).filter(
+    (row) => row.dateKey <= todayKey,
+  );
   let scheduled = 0;
   let completed = 0;
-  for (const day of days) {
+  for (const day of daily) {
     scheduled += day.scheduled;
     completed += day.completed;
   }
@@ -356,7 +367,8 @@ export function monthlySummary(
     scheduled,
     completed,
     rate: scheduled > 0 ? completed / scheduled : 0,
-    days,
+    days: daily.length,
+    daily,
   };
 }
 

@@ -14,6 +14,7 @@ import type {
   Settings,
   ThemePreference,
 } from '../lib/types';
+import { DEFAULT_APPEARANCE } from '../lib/types';
 import {
   makeId,
   loadAppData,
@@ -80,8 +81,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [completions, setCompletions] = useState<Completions>({});
   const [settings, setSettingsState] = useState<Settings>({
     theme: 'dark',
-    weekStart: 1,
+    weekStart: 'mon',
     notificationsEnabled: true,
+    appearance: { ...DEFAULT_APPEARANCE },
   });
   const [notificationIds, setNotificationIds] = useState<Record<string, string[]>>({});
   const [today, setToday] = useState(todayKey());
@@ -241,7 +243,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (newCount <= 0) {
           delete byDate[dateKey]; // uncheck leaves no ghost records
         } else {
-          byDate[dateKey] = { count: newCount, updatedAt: Date.now() };
+          byDate[dateKey] = { count: newCount, updatedAt: new Date().toISOString() };
         }
         if (Object.keys(byDate).length === 0) delete next[habitId];
         else next[habitId] = byDate;
@@ -266,7 +268,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (count >= effectiveTarget(habit)) return prev;
         byDate[dateKey] = {
           count: nextCountAfterIncrement(habit, count),
-          updatedAt: Date.now(),
+          updatedAt: new Date().toISOString(),
         };
         next[habitId] = byDate;
         return next;
@@ -295,7 +297,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setHabits([]);
     setCompletions({});
     setNotificationIds({});
-    setSettingsState({ theme: 'dark', weekStart: 1, notificationsEnabled: true });
+    setSettingsState({ theme: 'dark', weekStart: 'mon', notificationsEnabled: true, appearance: { ...DEFAULT_APPEARANCE } });
     setCorruptStored(false);
     setCorruptBannerVisible(false);
     await clearStoredData();
@@ -307,8 +309,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const systemScheme = useColorScheme();
   const colors = useMemo(
-    () => paletteFor(settings.theme, systemScheme === 'light' ? 'light' : 'dark'),
-    [settings.theme, systemScheme],
+    () =>
+      paletteFor(
+        settings.theme,
+        systemScheme === 'light' ? 'light' : 'dark',
+        settings.appearance.accent,
+      ),
+    [settings.theme, settings.appearance.accent, systemScheme],
   );
 
   const value = useMemo<AppStateCtx>(
@@ -320,7 +327,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       settings,
       today,
       colors,
-      isDark: colors === DARK,
+      isDark: colors.bg === DARK.bg,
       addHabit,
       updateHabit,
       deleteHabit,

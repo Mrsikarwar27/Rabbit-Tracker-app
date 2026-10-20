@@ -18,12 +18,18 @@ import React, {
   useState,
 } from 'react';
 import { useColorScheme } from 'react-native';
+import { DEFAULT_APPEARANCE } from '@/lib/types';
 import type {
+  AppearancePreferences,
   AppData,
+  CardStyle,
   Habit,
   HabitInput,
+  ListDensity,
   NotificationStatus,
   Settings,
+  ThemePreference,
+  Weekday,
 } from '@/lib/types';
 import { loadData, saveData, clearData as clearStorageData } from '@/lib/storage';
 import {
@@ -32,7 +38,38 @@ import {
   syncReminders,
 } from '@/lib/notifications';
 import { localDateKey } from '@/lib/dates';
-import { resolveTheme, type ThemeTokens } from '@/lib/theme';
+import {
+  resolveTheme,
+  normalizeHex,
+  PALETTE,
+  CARD_RADIUS,
+  CORNER_RADIUS_RANGE,
+  type ThemeTokens,
+} from '@/lib/theme';
+
+/** Shape written by the JSON export action. */
+export interface ExportedData {
+  habits: Habit[];
+  completions: AppData['completions'];
+  reminders: Record<string, string[]>;
+  settings: Settings;
+}
+
+/** Everything the appearance screen needs, derived from the one store. */
+export interface ThemeApi {
+  tokens: ThemeTokens;
+  mode: ThemePreference;
+  /** The raw accent the user picked (the swatch colour). */
+  accent: string;
+  appearance: AppearancePreferences;
+  setMode: (mode: ThemePreference) => void;
+  setAccent: (hex: string) => void;
+  setCardStyle: (style: CardStyle) => void;
+  setCornerRadius: (radius: number) => void;
+  setDensity: (density: ListDensity) => void;
+  setReducedMotion: (reduced: boolean) => void;
+  resetAppearance: () => void;
+}
 
 type HabitStore = {
   hydrated: boolean;
@@ -55,7 +92,14 @@ type HabitStore = {
   setReminderTime: (habitId: string, time: string | undefined) => Promise<void>;
   refreshNotificationStatus: () => Promise<void>;
   clearAllData: () => Promise<void>;
-  exportData: () => AppData;
+  exportData: () => ExportedData;
+  setMode: (mode: ThemePreference) => void;
+  setAccent: (hex: string) => void;
+  setCardStyle: (style: CardStyle) => void;
+  setCornerRadius: (radius: number) => void;
+  setDensity: (density: ListDensity) => void;
+  setReducedMotion: (reduced: boolean) => void;
+  resetAppearance: () => void;
 };
 
 const HabitStoreContext = createContext<HabitStore | null>(null);
@@ -72,18 +116,20 @@ function habitFromInput(input: HabitInput, base?: Habit): Habit {
     : {
         id: newId(),
         title: '',
-        category: 'Personal',
+        category: 'personal',
         emoji: '🌱',
-        color: '#A6F36A',
+        color: PALETTE[0],
         frequency: { type: 'daily' },
         target: 1,
         createdAt: new Date().toISOString(),
         createdAtKey: nowKey,
         archived: false,
+        reminder: null,
+        updatedAt: new Date().toISOString(),
       };
   habit.title = input.title;
   if (input.description.trim()) habit.description = input.description.trim();
-  else delete habit.description;
+  else habit.description = '';
   habit.category = input.category;
   habit.emoji = input.emoji;
   habit.color = input.color;
@@ -92,11 +138,12 @@ function habitFromInput(input: HabitInput, base?: Habit): Habit {
       ? { type: 'daily' }
       : {
           type: 'weekdays',
-          weekdays: Array.from(new Set(input.weekdays)).sort((a, b) => a - b),
+          days: Array.from(new Set(input.weekdays))
+            .sort((a, b) => a - b) as Weekday[],
         };
   habit.target = input.target;
   if (input.reminderTime) habit.reminder = { time: input.reminderTime };
-  else delete habit.reminder;
+  else habit.reminder = null;
   if (base) {
     // Changing creation-date-derived fields is never allowed.
     habit.createdAt = base.createdAt;
@@ -114,9 +161,10 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
     theme: 'dark',
     weekStart: 'sun',
     notificationsEnabled: true,
+    appearance: { ...DEFAULT_APPEARANCE },
   });
   const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>('unknown');
-  const system = useColorScheme();
+  const system = useColorScheme() as 'light' | 'dark' | null | undefined;
 
   // ---- hydrate on mount -----------------------------------------------------
   useEffect(() => {
@@ -127,7 +175,11 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
       setHabits(data.habits);
       setCompletions(data.completions);
       setReminders(data.reminders);
-      setSettingsState(data.settings);
+      setSettingsState({
+        ...data.settings,
+        appearance: (data.settings as Settings & { appearance?: AppearancePreferences }).appearance ??
+          DEFAULT_APPEARANCE,
+      });
       setHydrated(true);
       try {
         const status = await getPermissionStatus();
@@ -282,7 +334,7 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
         if (h.id !== habitId) return h;
         const next = { ...h };
         if (time) next.reminder = { time };
-        else delete next.reminder;
+        else next.reminder = null;
         return next;
       }),
     );
@@ -312,7 +364,7 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
     }).catch(() => undefined);
   }, []);
 
-  const exportData = useCallback((): AppData => {
+  const exportData = useCallback((): ExportedData => {
     return {
       habits: dataRef.current.habits,
       completions: dataRef.current.completions,
@@ -322,8 +374,8 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const tokens = useMemo(
-    () => resolveTheme(settings.theme, system),
-    [settings.theme, system],
+    () => resolveTheme(settings.theme, system, settings.appearance.accent),
+    [settings.theme, settings.appearance.accent, system],
   );
 
   const { activeHabits, archivedHabits } = useMemo(() => {
@@ -343,6 +395,59 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
       completions[dateKey]?.[habitId]?.count ?? 0,
     [completions],
   );
+
+  /* ── appearance mutations ─────────────────────────────────────────────── */
+
+  const patchAppearance = useCallback((patch: Partial<AppearancePreferences>) => {
+    setSettingsState((prev) => ({
+      ...prev,
+      appearance: { ...prev.appearance, ...patch },
+    }));
+  }, []);
+
+  const setMode = useCallback((mode: ThemePreference) => {
+    setSettingsState((prev) => ({ ...prev, theme: mode }));
+  }, []);
+
+  const setAccent = useCallback((hex: string) => {
+    const normalized = normalizeHex(hex);
+    if (!normalized) return; // malformed colours never reach the stylesheet
+    patchAppearance({ accent: normalized });
+  }, [patchAppearance]);
+
+  const setCardStyle = useCallback(
+    (cardStyle: CardStyle) =>
+      patchAppearance({ cardStyle, cornerRadius: CARD_RADIUS[cardStyle] }),
+    [patchAppearance],
+  );
+
+  const setCornerRadius = useCallback(
+    (cornerRadius: number) =>
+      patchAppearance({
+        cornerRadius: Math.max(
+          CORNER_RADIUS_RANGE.min,
+          Math.min(CORNER_RADIUS_RANGE.max, Math.round(cornerRadius)),
+        ),
+      }),
+    [patchAppearance],
+  );
+
+  const setDensity = useCallback(
+    (density: ListDensity) => patchAppearance({ density }),
+    [patchAppearance],
+  );
+
+  const setReducedMotion = useCallback(
+    (reducedMotion: boolean) => patchAppearance({ reducedMotion }),
+    [patchAppearance],
+  );
+
+  const resetAppearance = useCallback(() => {
+    setSettingsState((prev) => ({
+      ...prev,
+      appearance: { ...DEFAULT_APPEARANCE },
+    }));
+  }, []);
 
   const value: HabitStore = useMemo(
     () => ({
@@ -367,6 +472,13 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
       refreshNotificationStatus,
       clearAllData,
       exportData,
+      setMode,
+      setAccent,
+      setCardStyle,
+      setCornerRadius,
+      setDensity,
+      setReducedMotion,
+      resetAppearance,
     }),
     [
       hydrated,
@@ -390,6 +502,13 @@ export function HabitStoreProvider({ children }: { children: React.ReactNode }) 
       refreshNotificationStatus,
       clearAllData,
       exportData,
+      setMode,
+      setAccent,
+      setCardStyle,
+      setCornerRadius,
+      setDensity,
+      setReducedMotion,
+      resetAppearance,
     ],
   );
 
@@ -400,4 +519,38 @@ export function useHabitStore(): HabitStore {
   const ctx = useContext(HabitStoreContext);
   if (!ctx) throw new Error('useHabitStore must be used inside <HabitStoreProvider>');
   return ctx;
+}
+
+/**
+ * Appearance API used by Settings → Appearance.
+ *
+ * It reads the very same store the screens read, so a change here re-renders
+ * every mounted screen (including an open modal) immediately — there is only
+ * one copy of the theme state in the app.
+ */
+export function useTheme(): ThemeApi {
+  const {
+    tokens,
+    settings,
+    setMode,
+    setAccent,
+    setCardStyle,
+    setCornerRadius,
+    setDensity,
+    setReducedMotion,
+    resetAppearance,
+  } = useHabitStore();
+  return {
+    tokens,
+    mode: settings.theme,
+    accent: settings.appearance.accent,
+    appearance: settings.appearance,
+    setMode,
+    setAccent,
+    setCardStyle,
+    setCornerRadius,
+    setDensity,
+    setReducedMotion,
+    resetAppearance,
+  };
 }

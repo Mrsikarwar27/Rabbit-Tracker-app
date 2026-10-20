@@ -5,17 +5,16 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
-import { Link, router } from 'expo-router';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useHabitStore } from '@/hooks/useHabitStore';
+import { useHabitStore, useTheme } from '@/hooks/useHabitStore';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { Card, PrimaryButton, SectionLabel } from '@/components/ui';
 
 export default function Habits() {
   const {
-    tokens,
     activeHabits,
     archivedHabits,
     habits,
@@ -23,6 +22,7 @@ export default function Habits() {
     deleteHabit,
     setArchived,
   } = useHabitStore();
+  const { tokens } = useTheme();
   const insets = useSafeAreaInsets();
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -44,42 +44,63 @@ export default function Habits() {
 
   const renderRow = (id: string, emoji: string, title: string, meta: string, archived: boolean) => (
     <View key={id} style={[styles.row, { borderTopColor: tokens.border, opacity: busyId === id ? 0.5 : 1 }]}>
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={{ color: archived ? tokens.muted : tokens.text, fontSize: 15, fontWeight: '600' }} numberOfLines={1}>
+      <View style={styles.rowText}>
+        <Text
+          style={[styles.rowTitle, { color: archived ? tokens.textTertiary : tokens.textPrimary }]}
+          numberOfLines={1}
+        >
           {emoji} {title}
         </Text>
-        <Text style={{ color: tokens.sub, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+        <Text style={[styles.rowMeta, { color: tokens.textSecondary }]} numberOfLines={1}>
           {meta}
         </Text>
       </View>
-      <TouchableOpacity
+      <Text
+        role="button"
         onPress={() => router.push(`/habit-form?id=${id}`)}
-        hitSlop={6}
-        style={[styles.action, { borderColor: tokens.border, minHeight: 40 }]}
+        suppressHighlighting
+        style={[
+          styles.action,
+          {
+            color: tokens.textSecondary,
+            borderColor: tokens.border,
+            backgroundColor: tokens.surfaceContainer,
+          },
+        ]}
       >
-        <Text style={{ color: tokens.sub, fontSize: 12, fontWeight: '700' }}>Edit</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
+        Edit
+      </Text>
+      <Text
+        role="button"
         onPress={() => {
           setBusyId(id);
           setArchived(id, !archived)
             .catch(() => undefined)
             .finally(() => setBusyId(null));
         }}
-        hitSlop={6}
-        style={[styles.action, { borderColor: archived ? tokens.accent : tokens.border, minHeight: 40 }]}
+        suppressHighlighting
+        style={[
+          styles.action,
+          {
+            color: archived ? tokens.primary : tokens.textSecondary,
+            borderColor: archived ? tokens.primary : tokens.border,
+            backgroundColor: tokens.surfaceContainer,
+          },
+        ]}
       >
-        <Text style={{ color: archived ? tokens.accent : tokens.sub, fontSize: 12, fontWeight: '700' }}>
-          {archived ? 'Restore' : 'Archive'}
-        </Text>
-      </TouchableOpacity>
-      <TouchableOpacity
+        {archived ? 'Restore' : 'Archive'}
+      </Text>
+      <Text
+        role="button"
         onPress={() => confirmDelete(id, title)}
-        hitSlop={6}
-        style={[styles.action, { borderColor: tokens.danger, minHeight: 40 }]}
+        suppressHighlighting
+        style={[
+          styles.action,
+          { color: tokens.error, borderColor: tokens.error, backgroundColor: tokens.surfaceContainer },
+        ]}
       >
-        <Text style={{ color: tokens.danger, fontSize: 12, fontWeight: '700' }}>Delete</Text>
-      </TouchableOpacity>
+        Delete
+      </Text>
     </View>
   );
 
@@ -87,76 +108,128 @@ export default function Habits() {
     const days =
       habit.frequency.type === 'daily'
         ? 'Every day'
-        : [...habit.frequency.weekdays]
+        : (habit.frequency as { type: 'weekdays'; days: number[] }).days
             .sort((a, b) => a - b)
-            .map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
+            .map((d: number) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
             .join(', ');
     const target = habit.target > 1 ? ` · ${habit.target}×/day` : '';
-    const reminder = habit.reminder ? ` · ⏰ ${habit.reminder.time}` : '';
-    return `${days}${target}${reminder}`;
+    const reminderTimeStr = (habit.reminder as { time?: string })?.time || '';
+    const reminderStr = reminderTimeStr ? ` · ⏰ ${reminderTimeStr}` : '';
+    return `${days}${target}${reminderStr}`;
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: tokens.bg }}>
-      <StatusBar barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'} backgroundColor={tokens.bg} />
-      <ScreenHeader title="Manage habits" subtitle={`${activeHabits.length} active · ${archivedHabits.length} archived`} tokens={tokens} showBack />
+    <View style={[styles.screen, { backgroundColor: tokens.background }]}>
+      <StatusBar
+        barStyle={tokens.mode === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={tokens.background}
+      />
+      <ScreenHeader
+        title="Manage habits"
+        subtitle={`${activeHabits.length} active · ${archivedHabits.length} archived`}
+        showBack
+      />
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 40 }}
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
         {!hydrated ? (
-          <Text style={{ color: tokens.muted, textAlign: 'center', marginTop: 40 }}>Restoring your data…</Text>
+          <Text style={[styles.loading, { color: tokens.textTertiary }]}>Restoring your data…</Text>
         ) : habits.length === 0 ? (
-          <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border, alignItems: 'center', paddingVertical: 28 }]}>
-            <Text style={{ fontSize: 36 }}>🗂️</Text>
-            <Text style={{ color: tokens.text, fontSize: 15, fontWeight: '700', marginTop: 8 }}>Nothing here yet</Text>
-            <Text style={{ color: tokens.sub, fontSize: 12, marginTop: 4 }}>Create a habit from the home screen + button.</Text>
-          </View>
+          <Card style={styles.emptyCard}>
+            <Text style={styles.emptyEmoji}>🗂️</Text>
+            <Text style={[styles.emptyTitle, { color: tokens.textPrimary }]}>Nothing here yet</Text>
+            <Text style={[styles.emptyText, { color: tokens.textSecondary }]}>
+              Create a habit from the home screen + button.
+            </Text>
+          </Card>
         ) : (
-          <View style={[styles.card, { backgroundColor: tokens.card, borderColor: tokens.border }]}>
-            <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2 }}>ACTIVE ({activeHabits.length})</Text>
+          <Card style={styles.card}>
+            <SectionLabel>ACTIVE ({activeHabits.length})</SectionLabel>
             {activeHabits.map((h) => renderRow(h.id, h.emoji, h.title, freqMeta(h), false))}
-            {archivedHabits.length > 0 && (
-              <Text style={{ color: tokens.sub, fontSize: 11, fontWeight: '700', letterSpacing: 2, marginTop: 18 }}>ARCHIVED ({archivedHabits.length})</Text>
-            )}
+            {archivedHabits.length > 0 ? (
+              <SectionLabel style={styles.archivedLabel}>
+                ARCHIVED ({archivedHabits.length})
+              </SectionLabel>
+            ) : null}
             {archivedHabits.map((h) => renderRow(h.id, h.emoji, h.title, freqMeta(h), true))}
-          </View>
+          </Card>
         )}
 
-        <Link href="/habit-form" asChild>
-          <TouchableOpacity
-            style={{
-              backgroundColor: tokens.accent,
-              borderRadius: 14,
-              paddingVertical: 14,
-              marginTop: 18,
-              minHeight: 48,
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ color: tokens.onAccent, fontWeight: '800', fontSize: 15 }}>+ New habit</Text>
-          </TouchableOpacity>
-        </Link>
+        <PrimaryButton
+          label="New habit"
+          icon="+"
+          onPress={() => router.push('/habit-form')}
+          style={styles.newButton}
+        />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 20, borderWidth: 1, padding: 16, marginTop: 18 },
+  screen: {
+    flex: 1,
+  },
+  card: {
+    marginTop: 16,
+  },
+  loading: {
+    textAlign: 'center',
+    marginTop: 40,
+    fontSize: 14,
+  },
+  emptyCard: {
+    marginTop: 16,
+    alignItems: 'center',
+    paddingVertical: 30,
+  },
+  emptyEmoji: {
+    fontSize: 34,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 8,
+  },
+  emptyText: {
+    fontSize: 12,
+    marginTop: 4,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingVertical: 12,
-    borderTopWidth: 1,
-    minHeight: 56,
+    borderTopWidth: StyleSheet.hairlineWidth * 2,
+    minHeight: 58,
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rowTitle: {
+    fontSize: 15.5,
+    fontWeight: '600',
+  },
+  rowMeta: {
+    fontSize: 12,
+    marginTop: 2,
   },
   action: {
+    fontSize: 12,
+    fontWeight: '700',
     borderRadius: 10,
     borderWidth: 1,
-    paddingHorizontal: 10,
-    justifyContent: 'center',
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    overflow: 'hidden',
+  },
+  archivedLabel: {
+    marginTop: 18,
+  },
+  newButton: {
+    marginTop: 18,
   },
 });

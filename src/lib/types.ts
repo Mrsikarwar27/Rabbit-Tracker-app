@@ -39,17 +39,18 @@ export type HabitFrequency =
   | { type: 'daily' }
   | { type: 'weekdays'; days: Weekday[] };
 
-/** Reminder time in local 24-hour notation. */
+/** Reminder time in local 24-hour notation, or legacy hour/minute. */
 export interface HabitReminder {
-  hour: number; // 0–23
-  minute: number; // 0–59
+  time?: string; // HH:MM format preferred
+  hour?: number;
+  minute?: number;
 }
 
 export interface Habit {
   /** Stable opaque id. Never use an array index as an id. */
   id: string;
   title: string;
-  description: string;
+  description?: string; // optional
   category: HabitCategoryKey;
   emoji: string;
   /** Accent color as hex (one of ACCENT_COLORS). */
@@ -64,6 +65,8 @@ export interface Habit {
   reminder: HabitReminder | null;
   /** Local YYYY-MM-DD on which the habit was created. */
   createdAt: string;
+  /** Derived local date key (optional, for streak calculations). */
+  createdAtKey?: string;
   archived: boolean;
   /** Local YYYY-MM-DD when archived (streaks freeze afterward). */
   archivedAt?: string;
@@ -80,18 +83,41 @@ export type Completions = Record<string, Record<string, CompletionEntry>>;
 
 export type ThemePreference = 'dark' | 'light' | 'system';
 
+export type CardStyle = 'standard' | 'rounded' | 'minimal';
+export type ListDensity = 'compact' | 'comfortable';
+
+export interface AppearancePreferences {
+  accent: string;
+  cardStyle: CardStyle;
+  density: ListDensity;
+  reducedMotion: boolean;
+  /** Corner radius for cards, in dp. */
+  cornerRadius: number;
+}
+
 export interface Settings {
   theme: ThemePreference;
-  /** 0 = Sunday, 1 = Monday */
-  weekStart: Weekday;
+  /** 'sun' = Sunday, 'mon' = Monday */
+  weekStart: WeekStart;
   /** Master switch for habit reminders. */
   notificationsEnabled: boolean;
+  /** Appearance customizations. */
+  appearance: AppearancePreferences;
 }
+
+export const DEFAULT_APPEARANCE: AppearancePreferences = {
+  accent: '#A6F36A',
+  cardStyle: 'standard',
+  density: 'comfortable',
+  reducedMotion: false,
+  cornerRadius: 20,
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
-  weekStart: 1,
+  weekStart: 'mon',
   notificationsEnabled: true,
+  appearance: { ...DEFAULT_APPEARANCE },
 };
 
 /** Persisted in one versioned document under a single AsyncStorage key. */
@@ -138,18 +164,15 @@ export const HABIT_EMOJIS = [
  * Kept alongside the legacy key-based model above so both can coexist.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/**
- * Display-name category, rendered directly as its own label in the habit form.
- * Distinct from the internal lowercase `HabitCategoryKey` used for storage.
- */
-export type Category = 'Health' | 'Fitness' | 'Learning' | 'Productivity' | 'Personal';
+/** Display-name category, rendered directly as its own label in the habit form. */
+export type Category = HabitCategoryKey;
 
 export const CATEGORIES: readonly Category[] = [
-  'Health',
-  'Fitness',
-  'Learning',
-  'Productivity',
-  'Personal',
+  'health',
+  'fitness',
+  'learning',
+  'productivity',
+  'personal',
 ];
 
 export function isCategory(value: unknown): value is Category {

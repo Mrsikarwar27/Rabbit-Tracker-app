@@ -1,21 +1,25 @@
 import React from 'react';
 import { Stack } from 'expo-router';
-import { HabitStoreProvider, useHabitStore } from '@/hooks/useHabitStore';
+import { HabitStoreProvider, useTheme } from '@/hooks/useHabitStore';
 
 function ThemedStack() {
-  const { tokens } = useHabitStore();
+  const { tokens, appearance } = useTheme();
+  // The "reduced motion" preference genuinely disables screen animations.
+  const reduced = appearance.reducedMotion;
+
   return (
     <Stack
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: tokens.bg },
+        contentStyle: { backgroundColor: tokens.background },
+        animation: reduced ? 'none' : 'fade',
       }}
     >
       <Stack.Screen
         name="habit-form"
         options={{
           presentation: 'modal',
-          animation: 'slide_from_bottom',
+          animation: reduced ? 'none' : 'slide_from_bottom',
         }}
       />
     </Stack>

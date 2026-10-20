@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { Habit, HabitReminder } from './types';
+import type { Habit } from './types';
 import { makeId } from './storage';
 
 /**
@@ -102,8 +102,16 @@ function reminderContent(habit: Habit): { title: string; body: string } {
   };
 }
 
-function reminderTime(habit: Habit): HabitReminder {
-  return habit.reminder ?? { hour: 8, minute: 0 };
+function reminderTime(habit: Habit): { hour: number; minute: number } {
+  const r = habit.reminder;
+  if (r?.time) {
+    const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(r.time.trim());
+    if (match) return { hour: parseInt(match[1], 10), minute: parseInt(match[2], 10) };
+  }
+  if (typeof r?.hour === 'number' && typeof r?.minute === 'number') {
+    return { hour: r.hour, minute: r.minute };
+  }
+  return { hour: 8, minute: 0 };
 }
 
 /**
