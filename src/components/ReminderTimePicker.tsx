@@ -62,7 +62,7 @@ export function ReminderTimePicker({
             setPermissionDenied(true);
             Alert.alert(
               'Enable Notifications',
-              'To receive habit reminders, please allow notifications for Momentum in your device Settings.',
+              'To receive habit reminders, please allow notifications for Rabbit Tracker in your device Settings.',
               [
                 { text: 'Later', style: 'cancel' },
                 {
