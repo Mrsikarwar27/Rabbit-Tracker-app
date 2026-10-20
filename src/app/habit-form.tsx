@@ -17,11 +17,12 @@ import { useHabitStore, useTheme } from '@/hooks/useHabitStore';
 import { CATEGORIES, getCategoryMeta, type Category, type HabitInput } from '@/lib/types';
 import { CATEGORY_EMOJI, PALETTE } from '@/lib/theme';
 import { parseHhMm, weekdayLong, weekdayOrder } from '@/lib/dates';
+import { ReminderTimePicker } from '@/components/ReminderTimePicker';
 
 export default function HabitForm() {
   const params = useLocalSearchParams<{ id?: string }>();
   const editId = typeof params.id === 'string' ? params.id : undefined;
-  const { getHabit, addHabit, updateHabit, deleteHabit } = useHabitStore();
+  const { getHabit, addHabit, updateHabit, deleteHabit, settings } = useHabitStore();
   const { tokens } = useTheme();
   const existing = getHabit(editId);
   const insets = useSafeAreaInsets();
@@ -41,7 +42,8 @@ export default function HabitForm() {
     existing?.frequency.type === 'weekdays' ? (existing.frequency as { days: number[] }).days : [],
   );
   const [target, setTarget] = useState(String(existing?.target ?? 1));
-  const [reminderTime, setReminderTime] = useState(existing?.reminder?.time ?? '');
+  const [reminderEnabled, setReminderEnabled] = useState(Boolean(existing?.reminder?.time));
+  const [reminderTime, setReminderTime] = useState(existing?.reminder?.time ?? '08:00');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -52,8 +54,8 @@ export default function HabitForm() {
     if (frequencyType === 'weekdays' && weekdays.length === 0) return 'Pick at least one weekday';
     const t = parseInt(target || '0', 10);
     if (!Number.isInteger(t) || t < 1 || t > 99) return 'Daily target must be 1–99';
-    if (reminderTime.trim() && !parseHhMm(reminderTime))
-      return 'Reminder must be HH:MM, 24-hour (e.g. 07:30)';
+    if (reminderEnabled && (!reminderTime.trim() || !parseHhMm(reminderTime)))
+      return 'Please select a valid reminder time';
     return null;
   };
 
@@ -66,7 +68,7 @@ export default function HabitForm() {
     frequencyType,
     weekdays,
     target: parseInt(target || '0', 10),
-    reminderTime: reminderTime.trim(),
+    reminderTime: reminderEnabled ? reminderTime.trim() : '',
   });
 
   const save = async () => {
@@ -339,45 +341,37 @@ export default function HabitForm() {
           </View>
         ) : null}
 
-        <View style={styles.splitRow}>
-          <View style={styles.splitLeft}>
-            {field('DAILY TARGET')}
-            <View
-              style={[
-                styles.input,
-                { backgroundColor: tokens.surface, borderColor: tokens.border },
-              ]}
-            >
-              <TextInput
-                style={{ color: tokens.textPrimary, fontSize: 15, flex: 1 }}
-                value={target}
-                onChangeText={(text) => setTarget(text.replace(/[^0-9]/g, ''))}
-                keyboardType="number-pad"
-                maxLength={2}
-              />
-            </View>
-          </View>
-          <View style={styles.splitRight}>
-            {field('REMINDER (24H, OPTIONAL)')}
-            <View
-              style={[
-                styles.input,
-                { backgroundColor: tokens.surface, borderColor: tokens.border },
-              ]}
-            >
-              <TextInput
-                style={{ color: tokens.textPrimary, fontSize: 15, flex: 1 }}
-                placeholder="07:30"
-                placeholderTextColor={tokens.textTertiary}
-                value={reminderTime}
-                onChangeText={(text) => setReminderTime(text.replace(/[^0-9:]/g, ''))}
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-                autoCapitalize="none"
-              />
-            </View>
-          </View>
+        {field('DAILY TARGET', { marginTop: 18 })}
+        <View
+          style={[
+            styles.input,
+            { backgroundColor: tokens.surface, borderColor: tokens.border },
+          ]}
+        >
+          <TextInput
+            style={{ color: tokens.textPrimary, fontSize: 15, flex: 1 }}
+            value={target}
+            onChangeText={(text) => setTarget(text.replace(/[^0-9]/g, ''))}
+            keyboardType="number-pad"
+            maxLength={2}
+          />
         </View>
+
+        <ReminderTimePicker
+          enabled={reminderEnabled}
+          onToggleEnabled={(enabled) => {
+            setReminderEnabled(enabled);
+            if (enabled && !reminderTime) {
+              setReminderTime('08:00');
+            }
+          }}
+          time={reminderTime}
+          onTimeChange={(newTime) => {
+            setReminderTime(newTime);
+            setReminderEnabled(true);
+          }}
+          masterNotificationsEnabled={settings.notificationsEnabled}
+        />
 
         {error ? (
           <Text style={[styles.error, { color: tokens.error }]}>⚠️ {error}</Text>
@@ -498,17 +492,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  splitRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 18,
-  },
-  splitLeft: {
-    flex: 0.55,
-  },
-  splitRight: {
-    flex: 1,
   },
   error: {
     fontSize: 13,

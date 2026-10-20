@@ -201,3 +201,23 @@ export function bestCurrentStreak(habits: Habit[], completions: Completions, tod
     0,
   );
 }
+
+/** 'HH:MM' (current) or { hour, minute } (legacy) → 24h clock, or null. */
+export function reminderClock(reminder?: Habit['reminder']): { hour: number; minute: number } | null {
+  if (!reminder) return null;
+  if (typeof reminder.time === 'string') {
+    const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(reminder.time.trim());
+    return match ? { hour: parseInt(match[1], 10), minute: parseInt(match[2], 10) } : null;
+  }
+  if (typeof reminder.hour === 'number' && typeof reminder.minute === 'number') {
+    return { hour: reminder.hour, minute: reminder.minute };
+  }
+  return null;
+}
+
+/** Precise trigger count for a habit's reminder schedule. */
+export function reminderTriggerCount(habit: Habit): number {
+  if (habit.reminder === null) return 0;
+  return habit.frequency.type === 'daily' ? 1 : Math.max(habit.frequency.days.length, 0);
+}
+

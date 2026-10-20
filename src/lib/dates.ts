@@ -128,3 +128,32 @@ export function parseHhMm(value: string): { hour: number; minute: number } | nul
   if (!match) return null;
   return { hour: parseInt(match[1], 10), minute: parseInt(match[2], 10) };
 }
+
+/** Format hour (0-23) and minute (0-59) to 24h 'HH:MM'. */
+export function formatHhMm(hour: number, minute: number): string {
+  const h = String(Math.max(0, Math.min(23, hour))).padStart(2, '0');
+  const m = String(Math.max(0, Math.min(59, minute))).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+/** Format 'HH:MM' or { hour, minute } to user-friendly AM/PM string, e.g. '7:30 AM'. */
+export function formatTimeAmPm(value: string | { hour: number; minute: number }): string {
+  const parsed = typeof value === 'string' ? parseHhMm(value) : value;
+  if (!parsed) return '';
+  const { hour, minute } = parsed;
+  const period = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  const displayMinute = String(minute).padStart(2, '0');
+  return `${displayHour}:${displayMinute} ${period}`;
+}
+
+/** Build a local Date instance initialized with the given HH:MM time. */
+export function dateFromHhMm(timeStr?: string, defaultHour = 8, defaultMinute = 0): Date {
+  const date = new Date();
+  const parsed = timeStr ? parseHhMm(timeStr) : null;
+  const h = parsed ? parsed.hour : defaultHour;
+  const m = parsed ? parsed.minute : defaultMinute;
+  date.setHours(h, m, 0, 0);
+  return date;
+}
+

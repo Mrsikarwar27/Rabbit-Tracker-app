@@ -257,13 +257,13 @@ export interface ReminderHabitLike {
 }
 
 /** Selected weekdays for a habit; empty means "daily". */
-function reminderDays(frequency: ReminderHabitLike['frequency']): number[] {
+export function reminderDays(frequency: ReminderHabitLike['frequency']): number[] {
   if (frequency.type === 'daily') return [];
   return frequency.weekdays ?? frequency.days ?? [];
 }
 
 /** 'HH:MM' (current) or { hour, minute } (legacy) → 24h clock, or null. */
-function reminderClock(habit: ReminderHabitLike): { hour: number; minute: number } | null {
+export function reminderClock(habit: ReminderHabitLike): { hour: number; minute: number } | null {
   const reminder = habit.reminder;
   if (!reminder) return null;
   if (typeof reminder.time === 'string') {
