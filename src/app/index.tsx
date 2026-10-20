@@ -138,7 +138,7 @@ export default function Index() {
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <View style={styles.header}>
           <View style={styles.brandBlock}>
-            <Text style={[styles.brand, { color: tokens.primary }]}>MOMENTUM</Text>
+            <Text style={[styles.brand, { color: tokens.primary }]}>RABBIT TRACKER</Text>
             <Text style={[styles.greeting, { color: tokens.textPrimary }]}>
               {greeting(new Date().getHours())}.
             </Text>

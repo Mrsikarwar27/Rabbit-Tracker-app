@@ -1,7 +1,18 @@
 /// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, isValidDateKey, localDateKey, parseDateKey, startOfWeekKey, weekdayOf } from './dates';
+import {
+  addDays,
+  dateFromHhMm,
+  formatHhMm,
+  formatTimeAmPm,
+  isValidDateKey,
+  localDateKey,
+  parseDateKey,
+  parseHhMm,
+  startOfWeekKey,
+  weekdayOf,
+} from './dates';
 
 test('localDateKey uses local calendar, not UTC', () => {
   // 2024-01-01 00:30 IST == 2023-12-31 19:00 UTC. Must stay Jan 1 locally.
@@ -59,3 +70,35 @@ test('startOfWeekKey honors week-start preference', () => {
   // Monday with sun-start belongs to that same day's week starting Sunday prior.
   assert.equal(startOfWeekKey('2025-02-10', 'sun'), '2025-02-09');
 });
+
+test('parseHhMm and formatHhMm convert 24h times accurately', () => {
+  assert.deepEqual(parseHhMm('07:30'), { hour: 7, minute: 30 });
+  assert.deepEqual(parseHhMm('00:00'), { hour: 0, minute: 0 });
+  assert.deepEqual(parseHhMm('23:59'), { hour: 23, minute: 59 });
+  assert.equal(parseHhMm('24:00'), null);
+  assert.equal(parseHhMm('invalid'), null);
+  assert.equal(formatHhMm(7, 30), '07:30');
+  assert.equal(formatHhMm(0, 5), '00:05');
+  assert.equal(formatHhMm(23, 59), '23:59');
+});
+
+test('formatTimeAmPm produces user-friendly 12-hour strings', () => {
+  assert.equal(formatTimeAmPm('07:30'), '7:30 AM');
+  assert.equal(formatTimeAmPm('00:00'), '12:00 AM');
+  assert.equal(formatTimeAmPm('12:00'), '12:00 PM');
+  assert.equal(formatTimeAmPm('13:45'), '1:45 PM');
+  assert.equal(formatTimeAmPm('23:59'), '11:59 PM');
+  assert.equal(formatTimeAmPm({ hour: 9, minute: 5 }), '9:05 AM');
+  assert.equal(formatTimeAmPm({ hour: 21, minute: 30 }), '9:30 PM');
+  assert.equal(formatTimeAmPm(''), '');
+});
+
+test('dateFromHhMm initializes Date with specified hour and minute', () => {
+  const d = dateFromHhMm('14:30');
+  assert.equal(d.getHours(), 14);
+  assert.equal(d.getMinutes(), 30);
+  const fallback = dateFromHhMm(undefined, 8, 15);
+  assert.equal(fallback.getHours(), 8);
+  assert.equal(fallback.getMinutes(), 15);
+});
+
